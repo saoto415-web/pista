@@ -216,6 +216,103 @@ def cmd_picks(live_strategies=None):
 
     _save_picks_cache(report)
 
+    # シグナルを signals テーブルに保存
+    _save_signals(feat_rows, live_strategies)
+
+
+def _save_signals(feat_rows: list, live_strategies: list):
+    """picks のシグナルを signals テーブルに保存（重複は無視）"""
+    try:
+        import db as _db
+        from strategy_engine import apply_strategy
+        from feature_engine import group_by_race
+        from report_generator import _ev_label
+        from datetime import datetime as _dt
+
+        conn = _db.get_connection()
+        c    = _db.get_cursor(conn)
+        now  = _dt.now().isoformat()
+
+        races = group_by_race(feat_rows)
+        hit_rate_map = {s.name: s.hit_rate for s in live_strategies}
+
+        for race_id, horses in races.items():
+            if not horses:
+                continue
+            h = horses[0]
+            for strategy in live_strategies:
+                for sig in apply_strategy(horses, strategy):
+                    ev_mark, _ = _ev_label(sig.odds, hit_rate_map.get(sig.strategy))
+                    c.execute(_db.sql("""
+                        INSERT OR IGNORE INTO signals
+                        (date, race_id, venue, race_no, strategy, bet_type,
+                         axis_car, racer_name, odds_at_pick, ev_mark, created_at)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                    """), (
+                        h.get("date", ""), race_id,
+                        h.get("venue", ""), h.get("race_no", 0),
+                        sig.strategy, sig.bet_type,
+                        sig.car_no, sig.racer_name, sig.odds,
+                        ev_mark, now,
+                    ))
+        conn.commit()
+        conn.close()
+        logger.info("signals 保存完了")
+    except Exception as e:
+        logger.warning(f"signals 保存失敗（無視）: {e}")
+
+
+def cmd_grade_signals():
+    """signals テーブルの未照合シグナルに結果（的中/外れ/払戻）を設定"""
+    import db as _db
+
+    conn = _db.get_connection()
+    c    = _db.get_cursor(conn)
+
+    # is_hit が NULL のシグナルを対象
+    c.execute(_db.sql(
+        "SELECT id, race_id, bet_type, axis_car FROM signals WHERE is_hit IS NULL"
+    ))
+    rows = [dict(r) for r in c.fetchall()]
+
+    updated = 0
+    for row in rows:
+        race_id  = row["race_id"]
+        bet_type = row["bet_type"].lower()
+        axis     = row["axis_car"]
+
+        # payouts テーブルで照合
+        c.execute(_db.sql("""
+            SELECT payout FROM payouts
+            WHERE race_id = ?
+              AND bet_type = ?
+              AND (car_no1 = ? OR car_no2 = ?)
+        """), (race_id, bet_type, axis, axis))
+        payouts = [dict(r) for r in c.fetchall()]
+
+        # results テーブルで着順を確認（レース結果が取得済みか）
+        c.execute(_db.sql(
+            "SELECT COUNT(*) AS cnt FROM results WHERE race_id = ? AND finish_pos IS NOT NULL"
+        ), (race_id,))
+        result_row = c.fetchone()
+        if not result_row or dict(result_row)["cnt"] == 0:
+            continue  # 結果未取得はスキップ
+
+        if payouts:
+            payout = payouts[0]["payout"]
+            c.execute(_db.sql(
+                "UPDATE signals SET is_hit=1, actual_payout=? WHERE id=?"
+            ), (payout, row["id"]))
+        else:
+            c.execute(_db.sql(
+                "UPDATE signals SET is_hit=0, actual_payout=0 WHERE id=?"
+            ), (row["id"],))
+        updated += 1
+
+    conn.commit()
+    conn.close()
+    logger.info(f"signals 照合完了: {updated}件更新")
+
 
 def main():
     parser = argparse.ArgumentParser(description="PISTA 競輪AI予想システム")
@@ -236,6 +333,7 @@ def main():
 
     if args.fetch:
         cmd_fetch(years=args.years, specific_date=args.date)
+        cmd_grade_signals()   # fetch後にシグナル結果を自動照合
 
     if args.optimize:
         live_strategies = cmd_optimize(n_trials=args.trials)

@@ -24,7 +24,7 @@ st.set_page_config(page_title="PISTA 競輪AI", page_icon="🚴", layout="wide")
 st.sidebar.title("🚴 PISTA 競輪AI")
 page = st.sidebar.radio(
     "ページ選択",
-    ["🏆 Today's Picks", "📊 戦略パフォーマンス", "🗃️ DB概要", "🔍 レース検索"],
+    ["🏆 Today's Picks", "📈 収支・実績", "📊 戦略パフォーマンス", "🗃️ DB概要", "🔍 レース検索"],
 )
 
 # ──────────────────────────────────────────────
@@ -321,7 +321,220 @@ if page == "🏆 Today's Picks":
 
 
 # ──────────────────────────────────────────────
-# ページ 2: 戦略パフォーマンス
+# ページ 2: 収支・実績
+# ──────────────────────────────────────────────
+
+elif page == "📈 収支・実績":
+    st.title("📈 収支・実績")
+
+    tab_signal, tab_bet = st.tabs(["🤖 シグナル実績（自動）", "💰 実際の賭け記録（手動）"])
+
+    # ────────────────────────────────
+    # タブ1: シグナル実績
+    # ────────────────────────────────
+    with tab_signal:
+        st.subheader("🤖 AIシグナル実績")
+        st.caption("--picks 実行時に全シグナルを記録し、--fetch 後に自動的に的中/外れを照合します")
+
+        df_sig = query_db("""
+            SELECT date, venue, race_no, strategy, bet_type,
+                   axis_car, racer_name, odds_at_pick, ev_mark,
+                   is_hit, actual_payout
+            FROM signals
+            ORDER BY date DESC, race_no
+        """)
+
+        if df_sig.empty:
+            st.info("シグナルがまだ記録されていません。「ピックス更新」を実行すると記録が始まります。")
+        else:
+            # 照合済みデータのみで集計
+            df_graded = df_sig[df_sig["is_hit"].notna()].copy()
+            df_graded["is_hit"] = df_graded["is_hit"].astype(int)
+            df_graded["actual_payout"] = df_graded["actual_payout"].fillna(0).astype(int)
+
+            if not df_graded.empty:
+                total   = len(df_graded)
+                hits    = df_graded["is_hit"].sum()
+                hit_pct = hits / total * 100 if total else 0
+                total_paid = df_graded["actual_payout"].sum()
+                total_bet  = total * 100
+                roi = (total_paid - total_bet) / total_bet * 100 if total_bet else 0
+
+                c1, c2, c3, c4, c5 = st.columns(5)
+                c1.metric("照合済み", f"{total}件")
+                c2.metric("的中数",   f"{int(hits)}件")
+                c3.metric("的中率",   f"{hit_pct:.1f}%")
+                c4.metric("払戻合計", f"{total_paid:,}円")
+                c5.metric("ROI",      f"{roi:+.1f}%",
+                          delta_color="normal" if roi >= 0 else "inverse")
+
+                st.divider()
+
+                # 戦略別集計
+                st.subheader("戦略別成績")
+                grp = df_graded.groupby("strategy").agg(
+                    賭回数=("is_hit", "count"),
+                    的中数=("is_hit", "sum"),
+                    払戻合計=("actual_payout", "sum"),
+                ).reset_index()
+                grp["的中率(%)"] = (grp["的中数"] / grp["賭回数"] * 100).round(1)
+                grp["投資額"]    = grp["賭回数"] * 100
+                grp["ROI(%)"]    = ((grp["払戻合計"] - grp["投資額"]) / grp["投資額"] * 100).round(1)
+                st.dataframe(grp[["strategy","賭回数","的中数","的中率(%)","払戻合計","ROI(%)"]],
+                             hide_index=True, use_container_width=True)
+
+                # 累積損益チャート
+                st.subheader("累積損益（照合済みシグナル）")
+                df_sorted = df_graded.sort_values("date").reset_index(drop=True)
+                df_sorted["損益"] = df_sorted["actual_payout"] - 100
+                df_sorted["累積損益"] = df_sorted["損益"].cumsum()
+                fig_cum = px.line(df_sorted, y="累積損益",
+                                  labels={"index": "シグナル番号", "累積損益": "累積損益（円）"},
+                                  title="累積損益推移（1点100円換算）",
+                                  color_discrete_sequence=["#2ecc71"])
+                fig_cum.add_hline(y=0, line_dash="dash", line_color="gray")
+                fig_cum.update_layout(
+                    plot_bgcolor="#0e1117", paper_bgcolor="#0e1117",
+                    font_color="white", height=300,
+                )
+                st.plotly_chart(fig_cum, use_container_width=True)
+
+            # 全シグナル一覧（未照合含む）
+            st.divider()
+            st.subheader("シグナル一覧")
+            df_disp = df_sig.copy()
+            df_disp["is_hit"] = df_disp["is_hit"].map(
+                lambda v: "◎ 的中" if v == 1 else ("✗ 外れ" if v == 0 else "⏳ 未確定")
+            )
+            df_disp["actual_payout"] = df_disp["actual_payout"].fillna(0).astype(int).map(
+                lambda v: f"{v:,}円" if v > 0 else "-"
+            )
+            df_disp["odds_at_pick"] = df_disp["odds_at_pick"].map(
+                lambda v: f"{v:.0f}円" if v and v > 0 else "-"
+            )
+            df_disp.columns = ["日付","会場","R","戦略","賭種","軸車","選手","オッズ","EV","結果","払戻"]
+            st.dataframe(df_disp, hide_index=True, use_container_width=True)
+
+    # ────────────────────────────────
+    # タブ2: 実際の賭け記録
+    # ────────────────────────────────
+    with tab_bet:
+        st.subheader("💰 賭け記録入力")
+
+        with st.form("bet_form", clear_on_submit=True):
+            fc1, fc2, fc3 = st.columns(3)
+            with fc1:
+                bet_date    = st.date_input("日付", value=date.today())
+                bet_venue   = st.text_input("会場", placeholder="例: 松阪")
+            with fc2:
+                bet_race_no = st.number_input("レース番号", min_value=1, max_value=12, value=1, step=1)
+                bet_type    = st.selectbox("賭種", ["2車複(NISHAFUKU)", "ワイド(WIDE)"])
+            with fc3:
+                bet_axis    = st.number_input("軸車番", min_value=1, max_value=9, value=1, step=1)
+                bet_amount  = st.number_input("賭け金合計(円)", min_value=100, value=700, step=100)
+
+            fc4, fc5 = st.columns(2)
+            with fc4:
+                bet_result  = st.selectbox("結果", ["未確定", "的中", "外れ"])
+            with fc5:
+                bet_payout  = st.number_input("払戻額(円)", min_value=0, value=0, step=100)
+
+            bet_strategy = st.text_input("戦略名（任意）", placeholder="例: FormPeak")
+            bet_notes    = st.text_input("メモ（任意）")
+            submitted    = st.form_submit_button("💾 記録する", type="primary")
+
+        if submitted:
+            try:
+                conn = _db.get_connection()
+                c    = _db.get_cursor(conn)
+                is_hit = {"的中": 1, "外れ": 0, "未確定": None}[bet_result]
+                profit = bet_payout - bet_amount if is_hit == 1 else (-bet_amount if is_hit == 0 else None)
+                bet_t  = "nishafuku" if "NISHAFUKU" in bet_type else "wide"
+                from datetime import datetime as _dtt
+                c.execute(_db.sql("""
+                    INSERT INTO bets
+                    (date, race_id, venue, race_no, strategy, bet_type,
+                     axis_car, amount, is_hit, payout, profit, notes, created_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """), (
+                    bet_date.isoformat(),
+                    f"{bet_date.strftime('%Y%m%d')}??{bet_race_no:02d}",
+                    bet_venue, bet_race_no,
+                    bet_strategy, bet_t,
+                    bet_axis, bet_amount,
+                    is_hit, bet_payout if is_hit == 1 else 0,
+                    profit, bet_notes,
+                    _dtt.now().isoformat(),
+                ))
+                conn.commit()
+                conn.close()
+                st.success("✅ 記録しました！")
+                st.cache_data.clear()
+            except Exception as e:
+                st.error(f"保存エラー: {e}")
+
+        # 賭け記録一覧
+        st.divider()
+        df_bets = query_db("""
+            SELECT date, venue, race_no, strategy, bet_type,
+                   axis_car, amount, is_hit, payout, profit, notes
+            FROM bets ORDER BY date DESC, race_no DESC
+        """)
+
+        if df_bets.empty:
+            st.info("まだ賭け記録がありません。上のフォームから入力してください。")
+        else:
+            # サマリ
+            df_b = df_bets.copy()
+            df_decided = df_b[df_b["is_hit"].notna()].copy()
+            if not df_decided.empty:
+                df_decided["is_hit"]  = df_decided["is_hit"].astype(int)
+                df_decided["profit"]  = df_decided["profit"].fillna(0).astype(int)
+                df_decided["payout"]  = df_decided["payout"].fillna(0).astype(int)
+                df_decided["amount"]  = df_decided["amount"].astype(int)
+
+                total_b   = len(df_decided)
+                hits_b    = int(df_decided["is_hit"].sum())
+                total_amt = int(df_decided["amount"].sum())
+                total_pay = int(df_decided["payout"].sum())
+                net       = int(df_decided["profit"].sum())
+                roi_b     = net / total_amt * 100 if total_amt else 0
+
+                b1, b2, b3, b4, b5 = st.columns(5)
+                b1.metric("賭回数",     f"{total_b}回")
+                b2.metric("的中数",     f"{hits_b}回")
+                b3.metric("合計投資額", f"{total_amt:,}円")
+                b4.metric("合計払戻",   f"{total_pay:,}円")
+                b5.metric("収支",       f"{net:+,}円",
+                          delta_color="normal" if net >= 0 else "inverse")
+
+                # 累積収支チャート
+                df_sorted_b = df_decided.sort_values("date").reset_index(drop=True)
+                df_sorted_b["累積収支"] = df_sorted_b["profit"].cumsum()
+                fig_b = px.line(df_sorted_b, y="累積収支",
+                                title="累積収支推移",
+                                color_discrete_sequence=["#f39c12"])
+                fig_b.add_hline(y=0, line_dash="dash", line_color="gray")
+                fig_b.update_layout(
+                    plot_bgcolor="#0e1117", paper_bgcolor="#0e1117",
+                    font_color="white", height=280,
+                )
+                st.plotly_chart(fig_b, use_container_width=True)
+
+            # 一覧テーブル
+            st.subheader("賭け記録一覧")
+            df_b["is_hit"] = df_b["is_hit"].map(
+                lambda v: "◎ 的中" if v == 1 else ("✗ 外れ" if v == 0 else "⏳ 未確定")
+            )
+            df_b["profit"] = df_b["profit"].apply(
+                lambda v: f"{int(v):+,}円" if v is not None and str(v) != "None" else "-"
+            )
+            df_b.columns = ["日付","会場","R","戦略","賭種","軸車","金額","結果","払戻","収支","メモ"]
+            st.dataframe(df_b, hide_index=True, use_container_width=True)
+
+
+# ──────────────────────────────────────────────
+# ページ 3: 戦略パフォーマンス
 # ──────────────────────────────────────────────
 
 elif page == "📊 戦略パフォーマンス":

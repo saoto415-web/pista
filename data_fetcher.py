@@ -218,6 +218,46 @@ def init_db():
     """)
 
     c.execute(f"""
+        CREATE TABLE IF NOT EXISTS signals (
+            id            {spk},
+            date          TEXT,
+            race_id       TEXT,
+            venue         TEXT,
+            race_no       INTEGER,
+            strategy      TEXT,
+            bet_type      TEXT,
+            axis_car      INTEGER,
+            racer_name    TEXT,
+            odds_at_pick  REAL,
+            ev_mark       TEXT,
+            is_hit        INTEGER,
+            actual_payout INTEGER,
+            created_at    TEXT
+        )
+    """)
+
+    c.execute(f"""
+        CREATE TABLE IF NOT EXISTS bets (
+            id          {spk},
+            date        TEXT,
+            race_id     TEXT,
+            venue       TEXT,
+            race_no     INTEGER,
+            strategy    TEXT,
+            bet_type    TEXT,
+            axis_car    INTEGER,
+            aite_cars   TEXT,
+            n_combos    INTEGER,
+            amount      INTEGER,
+            is_hit      INTEGER,
+            payout      INTEGER,
+            profit      INTEGER,
+            notes       TEXT,
+            created_at  TEXT
+        )
+    """)
+
+    c.execute(f"""
         CREATE TABLE IF NOT EXISTS picks_cache (
             date       TEXT PRIMARY KEY,
             report     TEXT,
