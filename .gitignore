@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+data/
+logs/
+.streamlit/secrets.toml
+*.db
+*.log

@@ -1,0 +1,36 @@
+name: PISTA 毎日自動実行
+
+on:
+  schedule:
+    - cron: '30 21 * * *'   # 毎日 06:30 JST (fetch)
+    - cron: '0  1  * * *'   # 毎日 10:00 JST (picks)
+  workflow_dispatch:         # 手動実行ボタン
+
+jobs:
+  fetch:
+    name: データ取得 (--fetch)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '30 21 * * *'
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - run: python main.py --fetch --years 0   # 直近7日分のみ
+
+  picks:
+    name: 推奨車券生成 (--picks)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 1 * * *'
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - run: python main.py --picks

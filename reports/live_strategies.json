@@ -1,0 +1,38 @@
+[
+  {
+    "name": "FormPeak",
+    "bet_type": "nishafuku",
+    "params": {
+      "max_prev_finish": 3,
+      "max_days_since_last": 7,
+      "min_popularity": 3,
+      "max_popularity": 8,
+      "min_racer_win_rate": 0.12
+    },
+    "hit_rate": 0.273
+  },
+  {
+    "name": "BankSpec",
+    "bet_type": "wide",
+    "params": {
+      "max_popularity": 3,
+      "min_venue_win_rate": 0.2,
+      "min_class_score": 2,
+      "min_racer_win_rate": 0.05
+    },
+    "hit_rate": 0.615
+  },
+  {
+    "name": "ValueHunt",
+    "bet_type": "wide",
+    "params": {
+      "min_popularity": 6,
+      "max_popularity": 8,
+      "max_line_position": 1,
+      "min_racer_win_rate": 0.08,
+      "max_prev_finish": 6,
+      "min_line_size": 2
+    },
+    "hit_rate": 0.308
+  }
+]
