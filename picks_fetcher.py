@@ -56,6 +56,7 @@ def fetch_upcoming_entries(days_ahead: int = 1) -> tuple[list[dict], dict[str, l
                     "grade":      ri["grade"],
                     "num_racers": ri["num_racers"],
                     "bank_length": ri["bank_length"],
+                    "start_time": ri.get("start_time", ""),
                     "finish_pos": None,   # 未来なのでNULL
                     "car_no":     e["car_no"],
                     "racer_no":   e.get("racer_no", ""),

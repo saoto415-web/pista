@@ -184,10 +184,14 @@ if page == "🏆 Today's Picks":
         if st.button("🔄 ピックス更新（keirin.jp取得）", type="primary"):
             st.info("⏳ 特徴量計算中…7〜9分かかります。このままお待ちください。")
             with st.spinner("出走表取得・推奨車券生成中（7〜9分）…"):
-                subprocess.run(
+                result = subprocess.run(
                     [sys.executable, "main.py", "--picks"],
                     cwd=BASE_DIR,
+                    capture_output=True,
+                    text=True,
                 )
+            if result.returncode != 0:
+                st.error(f"エラーが発生しました:\n{result.stderr[-500:]}")
             st.rerun()
     with col2:
         if strat_path.exists():
@@ -211,6 +215,11 @@ if page == "🏆 Today's Picks":
     if not picks_text:
         st.info("「ピックス更新」ボタンを押すと、今日の推奨車券を取得します。")
     else:
+        # 出走表未公開メッセージの場合
+        if "出走表取得失敗" in picks_text or ("開催なし" in picks_text and "【" not in picks_text):
+            st.warning("🕐 出走表はまだ公開されていません。\n\nkeirin.jp は毎朝 **8時頃** に出走表を公開します。更新後に「ピックス更新」を再実行してください。")
+            st.stop()
+
         races = parse_picks_report(picks_text)
 
         if not races:

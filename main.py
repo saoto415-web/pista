@@ -167,10 +167,35 @@ def cmd_picks(live_strategies=None):
     # 過去データ（選手履歴構築用）
     history_rows, history_lines = load_from_db(days=365)
 
+    def _save_picks_cache(report: str):
+        """picks_cache テーブルに保存（共通処理）"""
+        try:
+            import db as _db
+            from datetime import date as _date, datetime as _datetime
+            conn = _db.get_connection()
+            c    = _db.get_cursor(conn)
+            today = _date.today().isoformat()
+            now   = _datetime.now().isoformat()
+            c.execute(_db.sql("""
+                INSERT OR IGNORE INTO picks_cache (date, report, updated_at)
+                VALUES (?,?,?)
+            """), (today, report, now))
+            if c.rowcount == 0:
+                c.execute(_db.sql(
+                    "UPDATE picks_cache SET report=?, updated_at=? WHERE date=?"
+                ), (report, now, today))
+            conn.commit()
+            conn.close()
+            logger.info("picks_cache 保存完了")
+        except Exception as e:
+            logger.warning(f"picks_cache 保存失敗（無視）: {e}")
+
     # 今日の出走表取得
     entry_rows, entry_lines = fetch_upcoming_entries(days_ahead=1)
     if not entry_rows:
-        logger.warning("出走表の取得に失敗しました。ネットワークを確認してください。")
+        msg = "出走表取得失敗（開催なし、または出走表未公開）\n（keirin.jp は毎朝8時頃に出走表を公開します）"
+        logger.warning(msg)
+        _save_picks_cache(msg)
         return
 
     odds_available = any(e.get("popularity", 0) > 0 for e in entry_rows)
@@ -189,26 +214,7 @@ def cmd_picks(live_strategies=None):
     picks_log.parent.mkdir(exist_ok=True)
     picks_log.write_text(report, encoding="utf-8")
 
-    # クラウド用: picks_cache テーブルにも保存
-    try:
-        import db as _db
-        from datetime import date as _date, datetime as _datetime
-        conn = _db.get_connection()
-        c    = _db.get_cursor(conn)
-        today = _date.today().isoformat()
-        now   = _datetime.now().isoformat()
-        c.execute(_db.sql("""
-            INSERT OR IGNORE INTO picks_cache (date, report, updated_at)
-            VALUES (?,?,?)
-        """), (today, report, now))
-        if c.rowcount == 0:
-            c.execute(_db.sql(
-                "UPDATE picks_cache SET report=?, updated_at=? WHERE date=?"
-            ), (report, now, today))
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logger.warning(f"picks_cache 保存失敗（無視）: {e}")
+    _save_picks_cache(report)
 
 
 def main():
