@@ -117,19 +117,22 @@ def parse_picks_report(text: str) -> list[dict]:
             current = {
                 "venue": m.group(1).split("　")[0].strip(),
                 "race":  int(m.group(2)),
-                "date":  "", "bank": "",
+                "date":  "", "bank": "", "start_time": "",
                 "racers": [], "picks": [],
             }
             continue
         if current is None:
             continue
-        # 日付・バンク
+        # 日付・バンク・発走時刻
         dm = re.search(r"日付: (\S+)", line)
         if dm:
             current["date"] = dm.group(1)
         bm = re.search(r"バンク: (\S+)", line)
         if bm:
             current["bank"] = bm.group(1)
+        tm = re.search(r"発走: (\d{1,2}:\d{2})", line)
+        if tm:
+            current["start_time"] = tm.group(1)
         # 出走者行（先頭スペース + 数字車）
         rm = re.match(r"\s+(\d+)車 (.+?) \[([^\]]*)\] ([^\|]+)\| (.+)$", line)
         if rm:
@@ -222,9 +225,19 @@ if page == "🏆 Today's Picks":
 
             st.subheader(f"📋 推奨レース一覧（{len(races)}件）")
 
+            # 発走時刻 → 時系列ソート（時刻がある場合は時刻順、ない場合はrace_no順）
+            def _sort_key(r):
+                st_raw = r.get("start_time", "")
+                if st_raw and re.match(r"\d{1,2}:\d{2}", st_raw):
+                    h, mn = map(int, st_raw.split(":"))
+                    return (h * 60 + mn, r["race"])
+                return (9999, r["race"])
+
+            races_sorted = sorted(races, key=_sort_key)
+
             BET_COLOR = {"NISHAFUKU": "#1f77b4", "WIDE": "#2ca02c"}
 
-            for r in races:
+            for r in races_sorted:
                 venue  = r["venue"]
                 race_n = r["race"]
                 picks  = r["picks"]
@@ -241,7 +254,9 @@ if page == "🏆 Today's Picks":
                 bd_color  = "#2ecc71" if is_go else "#f39c12"
                 go_label  = "◎ 賭け推奨" if is_go else "△ 見送り推奨"
 
-                label = f"{ev_mark} **{venue} R{race_n}**　{bet_name}　軸{pick['car']}車 {pick['name']}　{total_yen}円　← {pick['strategy']}"
+                start_time = r.get("start_time", "")
+                time_badge = f"🕐{start_time} " if start_time else ""
+                label = f"{time_badge}{ev_mark} **{venue} R{race_n}**　{bet_name}　軸{pick['car']}車 {pick['name']}　{total_yen}円　← {pick['strategy']}"
                 with st.expander(label):
                     # EV バッジ
                     st.markdown(
@@ -542,10 +557,11 @@ elif page == "🔍 レース検索":
 
     df_races = query_db(f"""
         SELECT r.race_id, r.date, r.venue, r.race_no, r.race_name,
-               r.grade, r.num_racers, r.bank_length
+               r.grade, r.num_racers, r.bank_length,
+               COALESCE(r.start_time, '') AS start_time
         FROM races r
         WHERE {' AND '.join(where)}
-        ORDER BY r.date DESC, r.venue, r.race_no
+        ORDER BY r.date DESC, COALESCE(r.start_time, '99:99'), r.venue, r.race_no
         LIMIT 50
     """, tuple(params))
 

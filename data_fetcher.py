@@ -160,9 +160,16 @@ def init_db():
             race_name   TEXT,
             grade       TEXT,
             num_racers  INTEGER,
-            bank_length INTEGER
+            bank_length INTEGER,
+            start_time  TEXT
         )
     """)
+    # 既存DBにカラムが無い場合は追加
+    try:
+        c.execute("ALTER TABLE races ADD COLUMN start_time TEXT")
+        conn.commit()
+    except Exception:
+        pass
 
     c.execute(f"""
         CREATE TABLE IF NOT EXISTS results (
@@ -389,6 +396,17 @@ def _populate_cache_from_venue(
         race_no  = int(pj_entry.get("raceNo", idx + 1) or idx + 1)
         race_id  = _make_race_id(venue_code, date_str, race_no)
 
+        # 発走時刻: C0201race の stTime / hassojikan / 時刻系フィールドを試みる
+        start_time = ""
+        for tf in ["stTime", "hassojikan", "startTime", "hasso", "raceTime"]:
+            v = cr.get(tf) or pj_entry.get(tf)
+            if v:
+                start_time = str(v).strip()
+                break
+        # "HHMM" → "HH:MM" に正規化
+        if re.match(r"^\d{4}$", start_time):
+            start_time = f"{start_time[:2]}:{start_time[2:]}"
+
         _encp_cache[race_id] = {
             "encParaR":   enc_r,
             "encParaK":   cr.get("encParaK", ""),
@@ -400,6 +418,7 @@ def _populate_cache_from_venue(
                 or pj_entry.get("narabi")
                 or []
             ),
+            "start_time": start_time,
         }
         race_list.append((venue_code, date_str, race_no))
 
@@ -956,6 +975,18 @@ def fetch_race_entry(venue_code: str, date_str: str, race_no: int) -> dict | Non
     if not lines:
         lines = _infer_lines_from_style(entries, race_id)
 
+    # HTMLから発走時刻を補完（キャッシュに無い場合）
+    start_time = cached.get("start_time", "")
+    if not start_time and enc_r:
+        # ページHTMLから "発走" の近くの時刻を探す
+        resp2 = _get(f"{BASE_URL}/pc/racelist?encp={enc_r}&dkbn=1") if not soup else None
+        search_text = resp2.text if resp2 else (soup.get_text() if soup else "")
+        tm = re.search(r'発走[^\d]*(\d{1,2}:\d{2})', search_text)
+        if not tm:
+            tm = re.search(r'(\d{1,2}:\d{2})', search_text[:3000])
+        if tm:
+            start_time = tm.group(1)
+
     race_info = {
         "race_id":    race_id,
         "date":       f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}",
@@ -966,6 +997,7 @@ def fetch_race_entry(venue_code: str, date_str: str, race_no: int) -> dict | Non
         "grade":      grade,
         "num_racers": len(entries),
         "bank_length": bank,
+        "start_time": start_time,
     }
 
     return {"race_info": race_info, "entries": entries, "lines": lines}
@@ -1009,12 +1041,13 @@ def save_to_db(
 
     c.execute(_db.sql("""
         INSERT OR IGNORE INTO races
-        (race_id, date, venue, venue_code, race_no, race_name, grade, num_racers, bank_length)
-        VALUES (?,?,?,?,?,?,?,?,?)
+        (race_id, date, venue, venue_code, race_no, race_name, grade, num_racers, bank_length, start_time)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
     """), (
         race_info["race_id"], race_info["date"], race_info["venue"],
         race_info["venue_code"], race_info["race_no"], race_info["race_name"],
         race_info["grade"], race_info["num_racers"], race_info["bank_length"],
+        race_info.get("start_time", ""),
     ))
 
     results_by_car = {r["car_no"]: r for r in results}

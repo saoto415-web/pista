@@ -103,7 +103,9 @@ def generate_picks_report(
             f"【{h.get('venue', '')} R{h.get('race_no', '')} "
             f"{h.get('race_name', '')} ({h.get('grade', '')})】"
         )
-        lines.append(f"  日付: {h.get('date', '')} | バンク: {h.get('bank_length', '')}m")
+        start_time = h.get('start_time', '')
+        time_str = f" | 発走: {start_time}" if start_time else ""
+        lines.append(f"  日付: {h.get('date', '')} | バンク: {h.get('bank_length', '')}m{time_str}")
         lines.append("")
 
         # 出走表サマリ
