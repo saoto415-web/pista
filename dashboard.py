@@ -34,9 +34,19 @@ page = st.sidebar.radio(
 @st.cache_data(ttl=300)
 def query_db(sql: str, params: tuple = ()) -> pd.DataFrame:
     conn = _db.get_connection()
-    df   = pd.read_sql_query(sql, conn, params=params)
-    conn.close()
-    return df
+    try:
+        if _db.is_pg():
+            # psycopg2: pd.read_sql_query との相性問題を避けてカーソルで取得
+            c = _db.get_cursor(conn)
+            c.execute(_db.sql(sql), params if params else None)
+            rows = c.fetchall()
+            if not rows:
+                return pd.DataFrame()
+            return pd.DataFrame([dict(r) for r in rows])
+        else:
+            return pd.read_sql_query(sql, conn, params=params if params else None)
+    finally:
+        conn.close()
 
 
 def load_picks_from_db() -> str | None:
