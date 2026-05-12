@@ -3,6 +3,7 @@ dashboard.py - PISTA 競輪AI ダッシュボード
 起動: streamlit run dashboard.py
 """
 
+import os
 import re
 import json
 import subprocess
@@ -18,6 +19,13 @@ import streamlit as st
 import db as _db
 
 BASE_DIR = Path(__file__).parent
+
+# Streamlit Secrets から DATABASE_URL を OS 環境変数にも設定
+# （subprocess で main.py を呼ぶ際に継承させるため）
+if "DATABASE_URL" in st.secrets and not os.environ.get("DATABASE_URL"):
+    os.environ["DATABASE_URL"] = st.secrets["DATABASE_URL"]
+    # db モジュールも再初期化
+    _db.DATABASE_URL = st.secrets["DATABASE_URL"]
 
 st.set_page_config(page_title="PISTA 競輪AI", page_icon="🚴", layout="wide")
 
@@ -194,11 +202,16 @@ if page == "🏆 Today's Picks":
         if st.button("🔄 ピックス更新（keirin.jp取得）", type="primary"):
             st.info("⏳ 特徴量計算中…7〜9分かかります。このままお待ちください。")
             with st.spinner("出走表取得・推奨車券生成中（7〜9分）…"):
+                env = os.environ.copy()
+                # Streamlit Secrets の DATABASE_URL を subprocess に継承
+                if "DATABASE_URL" in st.secrets:
+                    env["DATABASE_URL"] = st.secrets["DATABASE_URL"]
                 result = subprocess.run(
                     [sys.executable, "main.py", "--picks"],
                     cwd=BASE_DIR,
                     capture_output=True,
                     text=True,
+                    env=env,
                 )
             if result.returncode != 0:
                 st.error(f"エラーが発生しました:\n{result.stderr[-500:]}")
