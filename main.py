@@ -24,16 +24,17 @@ import logging
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+_LOG_DIR = Path(__file__).parent / "logs"
+_LOG_DIR.mkdir(exist_ok=True)
+_handlers = [logging.StreamHandler()]
+try:
+    _handlers.append(logging.FileHandler(_LOG_DIR / "main.log", encoding="utf-8"))
+except Exception:
+    pass
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(
-            Path(__file__).parent / "logs" / "main.log",
-            encoding="utf-8"
-        )
-    ]
+    handlers=_handlers,
 )
 
 LIVE_STRATEGIES_PATH = Path(__file__).parent / "reports" / "live_strategies.json"
