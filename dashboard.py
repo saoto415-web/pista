@@ -6,8 +6,6 @@ dashboard.py - PISTA 競輪AI ダッシュボード
 import os
 import re
 import json
-import subprocess
-import sys
 from pathlib import Path
 from datetime import date, timedelta
 
@@ -202,19 +200,16 @@ if page == "🏆 Today's Picks":
         if st.button("🔄 ピックス更新（keirin.jp取得）", type="primary"):
             st.info("⏳ 特徴量計算中…7〜9分かかります。このままお待ちください。")
             with st.spinner("出走表取得・推奨車券生成中（7〜9分）…"):
-                env = os.environ.copy()
-                # Streamlit Secrets の DATABASE_URL を subprocess に継承
-                if "DATABASE_URL" in st.secrets:
-                    env["DATABASE_URL"] = st.secrets["DATABASE_URL"]
-                result = subprocess.run(
-                    [sys.executable, "main.py", "--picks"],
-                    cwd=BASE_DIR,
-                    capture_output=True,
-                    text=True,
-                    env=env,
-                )
-            if result.returncode != 0:
-                st.error(f"エラーが発生しました:\n{result.stderr[-500:]}")
+                try:
+                    import sys as _sys
+                    _sys.path.insert(0, str(BASE_DIR))
+                    from main import cmd_picks, load_live_strategies
+                    cmd_picks()
+                    st.success("✅ 更新完了！")
+                except Exception as e:
+                    st.error(f"エラー: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
             st.rerun()
     with col2:
         if strat_path.exists():
