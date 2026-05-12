@@ -166,7 +166,8 @@ def cmd_picks(live_strategies=None):
     logger.info("=== 今日の推奨車券生成 ===")
 
     # 過去データ（選手履歴構築用）
-    history_rows, history_lines = load_from_db(days=365)
+    # クラウド環境では90日に絞ってDB負荷・転送量を削減
+    history_rows, history_lines = load_from_db(days=90)
 
     def _save_picks_cache(report: str):
         """picks_cache テーブルに保存（共通処理）"""
