@@ -198,18 +198,27 @@ if page == "🏆 Today's Picks":
     col1, col2, col3 = st.columns([3, 1, 1])
     with col1:
         if st.button("🔄 ピックス更新（keirin.jp取得）", type="primary"):
-            st.info("⏳ 特徴量計算中…7〜9分かかります。このままお待ちください。")
-            with st.spinner("出走表取得・推奨車券生成中（7〜9分）…"):
-                try:
-                    import sys as _sys
-                    _sys.path.insert(0, str(BASE_DIR))
-                    from main import cmd_picks, load_live_strategies
-                    cmd_picks()
-                    st.success("✅ 更新完了！")
-                except Exception as e:
-                    st.error(f"エラー: {e}")
-                    import traceback
-                    st.code(traceback.format_exc())
+            log_area = st.empty()
+            logs = []
+            def _log(msg):
+                logs.append(msg)
+                log_area.code("\n".join(logs))
+
+            _log("▶ 開始...")
+            try:
+                import sys as _sys
+                _sys.path.insert(0, str(BASE_DIR))
+                _log("▶ main をインポート中...")
+                from main import cmd_picks
+                _log("▶ keirin.jp から出走表取得中（数分かかります）...")
+                cmd_picks()
+                _log("✅ 完了！")
+                st.success("✅ ピックス更新完了！")
+            except Exception as e:
+                import traceback
+                _log(f"❌ エラー: {e}")
+                _log(traceback.format_exc())
+                st.error(f"エラー: {e}")
             st.rerun()
     with col2:
         if strat_path.exists():
