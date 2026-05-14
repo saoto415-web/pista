@@ -114,6 +114,26 @@ def cmd_optimize(n_trials: int):
     report = generate_backtest_report(results)
     print("\n" + report)
 
+    # DBにレポートを保存（Streamlitから参照できるように）
+    try:
+        import db as _db
+        from datetime import datetime as _dt
+        conn = _db.get_connection()
+        c    = _db.get_cursor(conn)
+        now  = _dt.now().isoformat()
+        c.execute(_db.sql("""
+            INSERT OR IGNORE INTO optimize_cache (id, report, updated_at) VALUES (?,?,?)
+        """), ("latest", report, now))
+        if c.rowcount == 0:
+            c.execute(_db.sql(
+                "UPDATE optimize_cache SET report=?, updated_at=? WHERE id=?"
+            ), (report, now, "latest"))
+        conn.commit()
+        conn.close()
+        logger.info("optimize_cache 保存完了")
+    except Exception as e:
+        logger.warning(f"optimize_cache 保存失敗（無視）: {e}")
+
     live_strategies = [r.strategy for r in results if r.live_ready]
     logger.info(f"実運用基準クリア: {len(live_strategies)}戦略")
     save_live_strategies(live_strategies, optim_results=results)

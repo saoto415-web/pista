@@ -68,11 +68,28 @@ def load_picks_from_db() -> str | None:
         return None
 
 
+def load_optimize_report() -> str | None:
+    """optimize_cache テーブルから最新のレポートを取得"""
+    try:
+        conn = _db.get_connection()
+        c    = _db.get_cursor(conn)
+        c.execute(_db.sql("SELECT report FROM optimize_cache WHERE id = ?"), ("latest",))
+        row = c.fetchone()
+        conn.close()
+        return dict(row)["report"] if row else None
+    except Exception:
+        return None
+
+
 def parse_optimize_log() -> list[dict]:
-    log_path = BASE_DIR / "logs" / "optimize.log"
-    if not log_path.exists():
-        return []
-    text = log_path.read_text(encoding="utf-8")
+    # まずDBから取得を試みる
+    text = load_optimize_report()
+    # DBになければローカルファイルを試みる（開発環境用）
+    if not text:
+        log_path = BASE_DIR / "logs" / "optimize.log"
+        if not log_path.exists():
+            return []
+        text = log_path.read_text(encoding="utf-8")
     results = []
     # 「テスト:」行を1行に整形して解析
     for m in re.finditer(

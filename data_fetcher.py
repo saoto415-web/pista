@@ -267,6 +267,14 @@ def init_db():
         )
     """)
 
+    c.execute(f"""
+        CREATE TABLE IF NOT EXISTS optimize_cache (
+            id         TEXT PRIMARY KEY,
+            report     TEXT,
+            updated_at TEXT
+        )
+    """)
+
     # 一意制約インデックス（重複防止）
     try:
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS lines_unique_idx ON lines (race_id, line_no, position)")
