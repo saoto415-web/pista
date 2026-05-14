@@ -267,6 +267,14 @@ def init_db():
         )
     """)
 
+    # 一意制約インデックス（重複防止）
+    try:
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS lines_unique_idx ON lines (race_id, line_no, position)")
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS payouts_unique_idx ON payouts (race_id, bet_type, car_no1, car_no2, car_no3)")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
     conn.commit()
     conn.close()
 
@@ -1118,31 +1126,21 @@ def save_to_db(
             e.get("popularity", 0),
         ))
 
-    # lines: 既にこのrace_idのラインが存在する場合はスキップ
-    if lines:
-        race_id_check = lines[0]["race_id"]
-        c.execute(_db.sql("SELECT 1 FROM lines WHERE race_id=? LIMIT 1"), (race_id_check,))
-        if not c.fetchone():
-            for ln in lines:
-                c.execute(_db.sql("""
-                    INSERT INTO lines (race_id, line_no, position, car_no, racer_name)
-                    VALUES (?,?,?,?,?)
-                """), (ln["race_id"], ln["line_no"], ln["position"], ln["car_no"], ln["racer_name"]))
+    for ln in lines:
+        c.execute(_db.sql("""
+            INSERT OR IGNORE INTO lines (race_id, line_no, position, car_no, racer_name)
+            VALUES (?,?,?,?,?)
+        """), (ln["race_id"], ln["line_no"], ln["position"], ln["car_no"], ln["racer_name"]))
 
-    # payouts: 既にこのrace_idの払戻が存在する場合はスキップ
-    if payouts:
-        race_id_check = payouts[0]["race_id"]
-        c.execute(_db.sql("SELECT 1 FROM payouts WHERE race_id=? LIMIT 1"), (race_id_check,))
-        if not c.fetchone():
-            for p in payouts:
-                c.execute(_db.sql("""
-                    INSERT INTO payouts (race_id, bet_type, car_no1, car_no2, car_no3, payout, popularity)
-                    VALUES (?,?,?,?,?,?,?)
-                """), (
-                    p["race_id"], p["bet_type"],
-                    p.get("car_no1"), p.get("car_no2"), p.get("car_no3"),
-                    p["payout"], p.get("popularity", 0),
-                ))
+    for p in payouts:
+        c.execute(_db.sql("""
+            INSERT OR IGNORE INTO payouts (race_id, bet_type, car_no1, car_no2, car_no3, payout, popularity)
+            VALUES (?,?,?,?,?,?,?)
+        """), (
+            p["race_id"], p["bet_type"],
+            p.get("car_no1"), p.get("car_no2"), p.get("car_no3"),
+            p["payout"], p.get("popularity", 0),
+        ))
 
     conn.commit()
     conn.close()
