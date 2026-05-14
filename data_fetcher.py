@@ -165,11 +165,12 @@ def init_db():
             start_time  TEXT
         )
     """)
-    # 既存DBにカラムが無い場合は追加
+    # 既存DBにカラムが無い場合は追加（PostgreSQLはIF NOT EXISTSで安全に実行）
     try:
-        c.execute("ALTER TABLE races ADD COLUMN start_time TEXT")
+        c.execute("ALTER TABLE races ADD COLUMN IF NOT EXISTS start_time TEXT")
         conn.commit()
     except Exception:
+        conn.rollback()
         pass
 
     c.execute(f"""
