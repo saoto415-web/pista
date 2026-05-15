@@ -288,22 +288,39 @@ if page == "🏆 Today's Picks":
 
             races_sorted = sorted(races, key=_sort_key)
 
-            # 発走時刻が過ぎたレースを除外（JST基準・5分マージン）
+            # JST基準で「今日」「これから」のレースのみ表示
             from datetime import datetime as _dt, timezone, timedelta as _td
             _JST = timezone(_td(hours=9))
             _now_jst = _dt.now(_JST)
+            today_str   = _now_jst.strftime("%Y-%m-%d")
             now_minutes = _now_jst.hour * 60 + _now_jst.minute
+
+            def _is_today(r):
+                """今日の日付のレースのみ通す。日付不明は今日扱い。"""
+                d = r.get("date", "")
+                if not d or len(d) < 8:
+                    return True   # 日付不明 → 時刻フィルターに委ねる
+                # YYYY-MM-DD形式以外（"|" など解析ミス）は除外
+                if not re.match(r"\d{4}-\d{2}-\d{2}", d):
+                    return False
+                return d == today_str
+
             def _is_upcoming(r):
+                """発走時刻が5分以上前でないものを通す。時刻不明は通す。"""
                 st_raw = r.get("start_time", "")
                 if st_raw and re.match(r"\d{1,2}:\d{2}", st_raw):
                     h, mn = map(int, st_raw.split(":"))
                     return (h * 60 + mn) >= now_minutes - 5
-                return True  # 時刻不明はそのまま表示
-            races_sorted = [r for r in races_sorted if _is_upcoming(r)]
+                return True
 
-            # 今日の日付のレースのみ表示
-            today_str = _now_jst.strftime("%Y-%m-%d")
-            races_sorted = [r for r in races_sorted if not r.get("date") or r["date"] == today_str]
+            races_sorted = [r for r in races_sorted if _is_today(r) and _is_upcoming(r)]
+
+            # 今日分のレースが0件 → 古いキャッシュの可能性
+            if not races_sorted and races:
+                st.warning(
+                    "⚠️ キャッシュされたデータに今日のレースが見つかりません。\n\n"
+                    "「🔄 ピックス更新」ボタンで最新データを取得してください。"
+                )
 
             BET_COLOR = {"NISHAFUKU": "#1f77b4", "WIDE": "#2ca02c"}
 
@@ -398,25 +415,37 @@ elif page == "📈 収支・実績":
         st.caption("--picks 実行時に全シグナルを記録し、--fetch 後に自動的に的中/外れを照合します")
 
         # 🔄 更新・照合ボタン
-        col_ref, col_grade, col_info = st.columns([1, 1, 4])
+        col_ref, col_fetch, col_info = st.columns([1, 2, 3])
         with col_ref:
             if st.button("🔄 表示更新", key="refresh_signals"):
                 st.cache_data.clear()
                 st.rerun()
-        with col_grade:
-            if st.button("✅ 結果照合", key="grade_signals", help="レース結果とシグナルを照合して的中/外れを更新します"):
+        with col_fetch:
+            if st.button("📥 当日結果取得 & 照合", key="fetch_and_grade",
+                         help="keirin.jpから今日の結果を取得してシグナルを照合します（2〜3分かかります）"):
+                _log_area = st.empty()
+                _logs = []
+                def _lg(msg):
+                    _logs.append(msg)
+                    _log_area.code("\n".join(_logs))
                 try:
                     import sys as _sys
                     _sys.path.insert(0, str(BASE_DIR))
-                    from main import cmd_grade_signals
+                    _lg("▶ 最新データ取得中（chariloto.com）...")
+                    from main import cmd_fetch, cmd_grade_signals
+                    cmd_fetch(years=0, specific_date=None)   # 直近7日分取得
+                    _lg("✅ データ取得完了。照合中...")
                     cmd_grade_signals()
+                    _lg("✅ 照合完了！")
                     st.cache_data.clear()
-                    st.success("照合完了！")
-                    st.rerun()
+                    st.success("当日結果の取得 & 照合が完了しました！")
                 except Exception as e:
-                    st.error(f"照合エラー: {e}")
+                    import traceback as _tb
+                    _lg(f"❌ エラー: {e}\n{_tb.format_exc()}")
+                    st.error(f"エラー: {e}")
+                st.rerun()
         with col_info:
-            st.caption("「結果照合」を押すと、今日終わったレースの結果が反映されます（自動は21:00 JST頃）")
+            st.caption("レースが終わったら「当日結果取得 & 照合」を押すと的中/外れが反映されます（自動は21:00 JST頃）")
 
         df_sig = query_db("""
             SELECT date, venue, race_no, strategy, bet_type,
