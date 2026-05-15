@@ -397,14 +397,26 @@ elif page == "📈 収支・実績":
         st.subheader("🤖 AIシグナル実績")
         st.caption("--picks 実行時に全シグナルを記録し、--fetch 後に自動的に的中/外れを照合します")
 
-        # 🔄 更新ボタン（キャッシュをクリアして最新データを取得）
-        col_ref, col_info = st.columns([1, 5])
+        # 🔄 更新・照合ボタン
+        col_ref, col_grade, col_info = st.columns([1, 1, 4])
         with col_ref:
-            if st.button("🔄 最新データ取得", key="refresh_signals"):
+            if st.button("🔄 表示更新", key="refresh_signals"):
                 st.cache_data.clear()
                 st.rerun()
+        with col_grade:
+            if st.button("✅ 結果照合", key="grade_signals", help="レース結果とシグナルを照合して的中/外れを更新します"):
+                try:
+                    import sys as _sys
+                    _sys.path.insert(0, str(BASE_DIR))
+                    from main import cmd_grade_signals
+                    cmd_grade_signals()
+                    st.cache_data.clear()
+                    st.success("照合完了！")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"照合エラー: {e}")
         with col_info:
-            st.caption("ボタンを押すと最新データに更新されます（通常は60秒ごとに自動更新）")
+            st.caption("「結果照合」を押すと、今日終わったレースの結果が反映されます（自動は21:00 JST頃）")
 
         df_sig = query_db("""
             SELECT date, venue, race_no, strategy, bet_type,

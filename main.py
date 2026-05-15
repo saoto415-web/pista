@@ -212,8 +212,8 @@ def cmd_picks(live_strategies=None):
         except Exception as e:
             logger.warning(f"picks_cache 保存失敗（無視）: {e}")
 
-    # 今日の出走表取得
-    entry_rows, entry_lines = fetch_upcoming_entries(days_ahead=1)
+    # 今日の出走表取得（days_ahead=0 → 今日分のみ。明日分は含めない）
+    entry_rows, entry_lines = fetch_upcoming_entries(days_ahead=0)
     if not entry_rows:
         msg = "出走表取得失敗（開催なし、または出走表未公開）\n（keirin.jp は毎朝8時頃に出走表を公開します）"
         logger.warning(msg)
@@ -240,6 +240,12 @@ def cmd_picks(live_strategies=None):
 
     # シグナルを signals テーブルに保存
     _save_signals(feat_rows, live_strategies)
+
+    # picks 直後に照合実行（既に結果が出ているレースがあれば即照合）
+    try:
+        cmd_grade_signals()
+    except Exception as e:
+        logger.warning(f"picks 後の照合スキップ: {e}")
 
 
 def _save_signals(feat_rows: list, live_strategies: list):
