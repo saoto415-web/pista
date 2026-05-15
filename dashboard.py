@@ -37,7 +37,7 @@ page = st.sidebar.radio(
 # ユーティリティ
 # ──────────────────────────────────────────────
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def query_db(sql: str, params: tuple = ()) -> pd.DataFrame:
     conn = _db.get_connection()
     try:
@@ -288,9 +288,11 @@ if page == "🏆 Today's Picks":
 
             races_sorted = sorted(races, key=_sort_key)
 
-            # 発走時刻が過ぎたレースを除外（5分前まで表示）
-            from datetime import datetime as _dt
-            now_minutes = _dt.now().hour * 60 + _dt.now().minute
+            # 発走時刻が過ぎたレースを除外（JST基準・5分マージン）
+            from datetime import datetime as _dt, timezone, timedelta as _td
+            _JST = timezone(_td(hours=9))
+            _now_jst = _dt.now(_JST)
+            now_minutes = _now_jst.hour * 60 + _now_jst.minute
             def _is_upcoming(r):
                 st_raw = r.get("start_time", "")
                 if st_raw and re.match(r"\d{1,2}:\d{2}", st_raw):
