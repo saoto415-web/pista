@@ -301,6 +301,10 @@ if page == "🏆 Today's Picks":
                 return True  # 時刻不明はそのまま表示
             races_sorted = [r for r in races_sorted if _is_upcoming(r)]
 
+            # 今日の日付のレースのみ表示
+            today_str = _now_jst.strftime("%Y-%m-%d")
+            races_sorted = [r for r in races_sorted if not r.get("date") or r["date"] == today_str]
+
             BET_COLOR = {"NISHAFUKU": "#1f77b4", "WIDE": "#2ca02c"}
 
             for r in races_sorted:
@@ -393,6 +397,15 @@ elif page == "📈 収支・実績":
         st.subheader("🤖 AIシグナル実績")
         st.caption("--picks 実行時に全シグナルを記録し、--fetch 後に自動的に的中/外れを照合します")
 
+        # 🔄 更新ボタン（キャッシュをクリアして最新データを取得）
+        col_ref, col_info = st.columns([1, 5])
+        with col_ref:
+            if st.button("🔄 最新データ取得", key="refresh_signals"):
+                st.cache_data.clear()
+                st.rerun()
+        with col_info:
+            st.caption("ボタンを押すと最新データに更新されます（通常は60秒ごとに自動更新）")
+
         df_sig = query_db("""
             SELECT date, venue, race_no, strategy, bet_type,
                    axis_car, racer_name, odds_at_pick, ev_mark,
@@ -456,21 +469,78 @@ elif page == "📈 収支・実績":
                 )
                 st.plotly_chart(fig_cum, use_container_width=True)
 
-            # 全シグナル一覧（未照合含む）
+            # ── シグナル詳細（買い方指示カード形式）
             st.divider()
-            st.subheader("シグナル一覧")
-            df_disp = df_sig.copy()
-            df_disp["is_hit"] = df_disp["is_hit"].map(
-                lambda v: "◎ 的中" if v == 1 else ("✗ 外れ" if v == 0 else "⏳ 未確定")
-            )
-            df_disp["actual_payout"] = df_disp["actual_payout"].fillna(0).astype(int).map(
-                lambda v: f"{v:,}円" if v > 0 else "-"
-            )
-            df_disp["odds_at_pick"] = df_disp["odds_at_pick"].map(
-                lambda v: f"{v:.0f}円" if v and v > 0 else "-"
-            )
-            df_disp.columns = ["日付","会場","R","戦略","賭種","軸車","選手","オッズ","EV","結果","払戻"]
-            st.dataframe(df_disp, hide_index=True, use_container_width=True)
+            st.subheader("📋 シグナル詳細（買い方指示付き）")
+
+            # 日付ごとにグループ化して表示
+            sig_dates = sorted(df_sig["date"].unique(), reverse=True)
+            for sig_date in sig_dates:
+                df_day = df_sig[df_sig["date"] == sig_date].copy()
+                # 的中/外れ/未確定の件数を集計
+                n_hit   = int((df_day["is_hit"] == 1).sum())
+                n_miss  = int((df_day["is_hit"] == 0).sum())
+                n_tbd   = int(df_day["is_hit"].isna().sum())
+                day_pay = int(df_day["actual_payout"].fillna(0).sum())
+                day_lbl = f"📅 {sig_date}　✅{n_hit}的中 ❌{n_miss}外れ ⏳{n_tbd}未確定"
+                if n_hit > 0:
+                    day_lbl += f"　💰払戻合計 {day_pay:,}円"
+
+                with st.expander(day_lbl, expanded=(sig_date == sig_dates[0])):
+                    for _, row in df_day.iterrows():
+                        is_hit_val  = row.get("is_hit")
+                        payout_val  = int(row.get("actual_payout") or 0)
+                        bet_raw     = str(row.get("bet_type", "")).upper()
+                        bet_name    = "2車複" if "NISHAFUKU" in bet_raw else "ワイド"
+                        ev_mark     = row.get("ev_mark", "")
+                        ev_go       = ev_mark == "◎"
+                        odds_val    = row.get("odds_at_pick") or 0
+
+                        # 結果バッジ
+                        if is_hit_val == 1:
+                            res_icon   = "◎ 的中"
+                            res_detail = f"💰 {payout_val:,}円払戻 (投資100円 → +{payout_val - 100:,}円)"
+                            bd_color   = "#2ecc71"
+                            bg_color   = "#e8f5e9"
+                        elif is_hit_val == 0:
+                            res_icon   = "✗ 外れ"
+                            res_detail = "（-100円）"
+                            bd_color   = "#e74c3c"
+                            bg_color   = "#ffebee"
+                        else:
+                            res_icon   = "⏳ 結果待ち"
+                            res_detail = "（--fetch 後に自動照合）"
+                            bd_color   = "#f39c12"
+                            bg_color   = "#fff8e1"
+
+                        ev_label_str = "◎ 賭け推奨" if ev_go else "△ 見送り推奨"
+                        odds_str     = f"{int(odds_val):,}円" if odds_val > 0 else "オッズ未確定"
+                        card_title   = (
+                            f"**{res_icon}** &nbsp;|&nbsp; "
+                            f"{row['venue']} R{row['race_no']} &nbsp;{bet_name}&nbsp; "
+                            f"軸**{row['axis_car']}**車 {row['racer_name']} "
+                            f"← {row['strategy']}"
+                        )
+                        st.markdown(card_title, unsafe_allow_html=True)
+
+                        # 買い方ボックス
+                        st.markdown(
+                            f"""
+<div style="background:{bg_color};border-left:4px solid {bd_color};
+     padding:10px 16px;border-radius:4px;margin:4px 0 10px 0;font-size:0.95em">
+<b>🎯 買い方（ウィンチケット操作）</b><br>
+① 「{bet_name}」を選択<br>
+② 軸：<b>{row['axis_car']}車</b>（{row['racer_name']}）を選択<br>
+③ 相手：残り全車を選択<br>
+④ 100円 × 組み合わせ数 を購入<br>
+<span style="color:#888;font-size:0.9em">EV判定: {ev_label_str} ／ オッズ目安: {odds_str}</span><br>
+<b style="color:{bd_color}">{res_icon} {res_detail}</b>
+</div>
+""",
+                            unsafe_allow_html=True,
+                        )
+                    # 区切り
+                    st.markdown("---")
 
     # ────────────────────────────────
     # タブ2: 実際の賭け記録
