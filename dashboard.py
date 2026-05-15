@@ -288,6 +288,17 @@ if page == "🏆 Today's Picks":
 
             races_sorted = sorted(races, key=_sort_key)
 
+            # 発走時刻が過ぎたレースを除外（5分前まで表示）
+            from datetime import datetime as _dt
+            now_minutes = _dt.now().hour * 60 + _dt.now().minute
+            def _is_upcoming(r):
+                st_raw = r.get("start_time", "")
+                if st_raw and re.match(r"\d{1,2}:\d{2}", st_raw):
+                    h, mn = map(int, st_raw.split(":"))
+                    return (h * 60 + mn) >= now_minutes - 5
+                return True  # 時刻不明はそのまま表示
+            races_sorted = [r for r in races_sorted if _is_upcoming(r)]
+
             BET_COLOR = {"NISHAFUKU": "#1f77b4", "WIDE": "#2ca02c"}
 
             for r in races_sorted:
