@@ -48,9 +48,25 @@ def generate_backtest_report(optim_results) -> str:
 BET_AMOUNT = 100  # 1点あたりの賭け金
 
 
-def _ev_label(odds: float, hit_rate: float | None) -> tuple[str, str]:
-    """(ラベル, 説明文) を返す。odds=0 はオッズ未確定。"""
-    if hit_rate is None or odds <= 0:
+def _ev_label(
+    odds: float,
+    hit_rate: float | None,
+    avg_payout: float | None = None,
+) -> tuple[str, str]:
+    """(ラベル, 説明文) を返す。odds=0 はオッズ未確定。
+    avg_payout: 戦略の過去平均払戻額（円）。odds=0 時の暫定EV推計に使用。
+    """
+    if hit_rate is None:
+        return "△", "オッズ未確定（戦略実績なし）"
+    if odds <= 0:
+        # オッズ未確定 → avg_payout があれば暫定EV推計
+        if avg_payout and avg_payout > 0:
+            ev_prov = hit_rate * avg_payout
+            if ev_prov >= BET_AMOUNT:
+                return "🔶", (
+                    f"暫定EV≈{ev_prov:.0f}円 ✅ 暫定推奨"
+                    f"（過去平均払戻{avg_payout:.0f}円 × 的中率{hit_rate:.1%}）"
+                )
         return "△", "オッズ未確定"
     ev = hit_rate * odds * BET_AMOUNT
     min_odds = BET_AMOUNT / hit_rate if hit_rate > 0 else 9999
@@ -79,7 +95,10 @@ def generate_picks_report(
     if not odds_available:
         lines.append("  ⚠️  オッズ未確定（暫定ピックス）\n")
 
-    hit_rate_map: dict[str, float | None] = {s.name: s.hit_rate for s in live_strategies}
+    hit_rate_map:   dict[str, float | None] = {s.name: s.hit_rate for s in live_strategies}
+    avg_payout_map: dict[str, float | None] = {
+        s.name: getattr(s, "avg_payout", None) for s in live_strategies
+    }
 
     races = group_by_race(entry_features)
     picks_found = False
@@ -129,8 +148,9 @@ def generate_picks_report(
         all_cars = sorted(h.get("car_no", 0) for h in horses)
         lines.append("  推奨車券:")
         for sig in race_signals:
-            hit_rate = hit_rate_map.get(sig.strategy)
-            ev_mark, ev_desc = _ev_label(sig.odds, hit_rate)
+            hit_rate   = hit_rate_map.get(sig.strategy)
+            avg_payout = avg_payout_map.get(sig.strategy)
+            ev_mark, ev_desc = _ev_label(sig.odds, hit_rate, avg_payout=avg_payout)
             odds_str = f"{sig.odds:.0f}円" if sig.odds > 0 else "オッズ未確定"
             lines.append(
                 f"    {ev_mark} {sig.bet_type.upper()} {sig.car_no}車 "

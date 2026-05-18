@@ -176,8 +176,8 @@ def parse_picks_report(text: str) -> list[dict]:
                 "style": rm.group(4).strip(),
                 "line":  rm.group(5).strip(),
             })
-        # 推奨車券行（◎ or △ or ★）
-        pm = re.match(r"\s+([◎△★]) (\w+) (\d+)車 (.+?) \[([^\]]*)\] \((.+?)\) ← (\w+)", line)
+        # 推奨車券行（◎ or △ or 🔶 or ★）
+        pm = re.match(r"\s+([◎△🔶★]) (\w+) (\d+)車 (.+?) \[([^\]]*)\] \((.+?)\) ← (\w+)", line)
         if pm:
             current["picks"].append({
                 "ev_mark":  pm.group(1),
@@ -187,8 +187,8 @@ def parse_picks_report(text: str) -> list[dict]:
                 "odds_str": pm.group(6),
                 "strategy": pm.group(7),
             })
-        # EV説明行
-        em = re.match(r"\s{7}(EV=.+)", line)
+        # EV説明行（EV=... / 暫定EV≈...）
+        em = re.match(r"\s{7}((?:EV=|暫定EV≈|オッズ未確定).+)", line)
         if em and current["picks"]:
             current["picks"][-1]["ev_desc"] = em.group(1)
         # 合計行（買い方）
@@ -336,10 +336,11 @@ if page == "🏆 Today's Picks":
                 total_yen = pick.get("total_yen", "?")
                 ev_mark   = pick.get("ev_mark", "△")
                 ev_desc   = pick.get("ev_desc", "オッズ未確定")
-                is_go     = ev_mark == "◎"
-                bg_color  = "#e8f5e9" if is_go else "#fff8e1"
-                bd_color  = "#2ecc71" if is_go else "#f39c12"
-                go_label  = "◎ 賭け推奨" if is_go else "△ 見送り推奨"
+                is_go        = ev_mark == "◎"
+                is_prov      = ev_mark == "🔶"
+                bg_color  = "#e8f5e9" if is_go else ("#fff3e0" if is_prov else "#fff8e1")
+                bd_color  = "#2ecc71" if is_go else ("#e67e22" if is_prov else "#f39c12")
+                go_label  = "◎ 賭け推奨" if is_go else ("🔶 暫定推奨" if is_prov else "△ 見送り推奨")
 
                 start_time = r.get("start_time", "")
                 time_badge = f"🕐{start_time} " if start_time else ""
@@ -415,7 +416,7 @@ elif page == "📈 収支・実績":
         st.caption("--picks 実行時に全シグナルを記録し、--fetch 後に自動的に的中/外れを照合します")
 
         # 🔄 更新・照合ボタン
-        col_ref, col_fetch, col_info = st.columns([1, 2, 3])
+        col_ref, col_fetch, col_retro = st.columns([1, 2, 2])
         with col_ref:
             if st.button("🔄 表示更新", key="refresh_signals"):
                 st.cache_data.clear()
@@ -444,8 +445,32 @@ elif page == "📈 収支・実績":
                     _lg(f"❌ エラー: {e}\n{_tb.format_exc()}")
                     st.error(f"エラー: {e}")
                 st.rerun()
-        with col_info:
-            st.caption("レースが終わったら「当日結果取得 & 照合」を押すと的中/外れが反映されます（自動は21:00 JST頃）")
+        with col_retro:
+            with st.expander("🔁 レトロシミュレーション"):
+                from datetime import date as _d, timedelta as _td_r
+                _r_start = st.date_input("開始日", value=_d.today() - _td_r(days=7), key="retro_start")
+                _r_end   = st.date_input("終了日", value=_d.today() - _td_r(days=1), key="retro_end")
+                if st.button("▶ 過去データで予想を再実行", key="run_retro"):
+                    _log_area2 = st.empty()
+                    _logs2 = []
+                    def _lg2(msg):
+                        _logs2.append(msg)
+                        _log_area2.code("\n".join(_logs2))
+                    try:
+                        import sys as _sys2
+                        _sys2.path.insert(0, str(BASE_DIR))
+                        _lg2(f"▶ {_r_start} 〜 {_r_end} のシミュレーション開始...")
+                        from main import cmd_retro
+                        cmd_retro(str(_r_start), str(_r_end))
+                        _lg2("✅ 完了！")
+                        st.cache_data.clear()
+                        st.success("レトロシミュレーション完了！")
+                    except Exception as e:
+                        import traceback as _tb2
+                        _lg2(f"❌ エラー: {e}\n{_tb2.format_exc()}")
+                        st.error(f"エラー: {e}")
+                    st.rerun()
+        st.caption("レースが終わったら「当日結果取得 & 照合」を押すと的中/外れが反映されます（自動は21:00 JST頃）")
 
         df_sig = query_db("""
             SELECT date, venue, race_no, strategy, bet_type,
@@ -535,6 +560,7 @@ elif page == "📈 収支・実績":
                         bet_name    = "2車複" if "NISHAFUKU" in bet_raw else "ワイド"
                         ev_mark     = row.get("ev_mark", "")
                         ev_go       = ev_mark == "◎"
+                        ev_prov     = ev_mark in ("🔶", "retro")
                         odds_val    = row.get("odds_at_pick") or 0
 
                         # 結果バッジ
@@ -554,7 +580,10 @@ elif page == "📈 収支・実績":
                             bd_color   = "#f39c12"
                             bg_color   = "#fff8e1"
 
-                        ev_label_str = "◎ 賭け推奨" if ev_go else "△ 見送り推奨"
+                        ev_label_str = (
+                            "◎ 賭け推奨" if ev_go
+                            else ("🔶 暫定推奨" if ev_prov else "△ 見送り推奨")
+                        )
                         odds_str     = f"{int(odds_val):,}円" if odds_val > 0 else "オッズ未確定"
                         card_title   = (
                             f"**{res_icon}** &nbsp;|&nbsp; "

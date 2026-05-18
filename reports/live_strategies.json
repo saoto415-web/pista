@@ -9,7 +9,8 @@
       "max_popularity": 8,
       "min_racer_win_rate": 0.12
     },
-    "hit_rate": 0.273
+    "hit_rate": 0.273,
+    "avg_payout": 987
   },
   {
     "name": "BankSpec",
@@ -20,7 +21,8 @@
       "min_class_score": 2,
       "min_racer_win_rate": 0.05
     },
-    "hit_rate": 0.615
+    "hit_rate": 0.615,
+    "avg_payout": 306
   },
   {
     "name": "ValueHunt",
@@ -33,6 +35,7 @@
       "max_prev_finish": 6,
       "min_line_size": 2
     },
-    "hit_rate": 0.308
+    "hit_rate": 0.308,
+    "avg_payout": 662
   }
 ]

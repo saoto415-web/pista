@@ -20,7 +20,8 @@ class StrategyConfig:
     name:     str
     bet_type: str          # "tansho" / "fukusho" / "nishafuku" / "sanrenfuku"
     params:   dict = field(default_factory=dict)
-    hit_rate: float | None = None  # バックテスト的中率（EV計算用）
+    hit_rate:   float | None = None  # バックテスト的中率（EV計算用）
+    avg_payout: float | None = None  # 過去平均払戻額（暫定EV推計用）
 
     def default_params(self) -> dict:
         defaults = {

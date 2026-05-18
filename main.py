@@ -48,10 +48,11 @@ def save_live_strategies(live_strategies, optim_results=None):
                 hit_rate_map[r.strategy.name] = r.test_backtest.hit_rate
     data = [
         {
-            "name":     s.name,
-            "bet_type": s.bet_type,
-            "params":   s.params,
-            "hit_rate": hit_rate_map.get(s.name, None),
+            "name":       s.name,
+            "bet_type":   s.bet_type,
+            "params":     s.params,
+            "hit_rate":   hit_rate_map.get(s.name, None),
+            "avg_payout": getattr(s, "avg_payout", None),
         }
         for s in live_strategies
     ]
@@ -68,6 +69,7 @@ def load_live_strategies():
             StrategyConfig(
                 name=d["name"], bet_type=d["bet_type"], params=d["params"],
                 hit_rate=d.get("hit_rate"),
+                avg_payout=d.get("avg_payout"),
             )
             for d in data
         ]
@@ -262,7 +264,8 @@ def _save_signals(feat_rows: list, live_strategies: list):
         now  = _dt.now().isoformat()
 
         races = group_by_race(feat_rows)
-        hit_rate_map = {s.name: s.hit_rate for s in live_strategies}
+        hit_rate_map   = {s.name: s.hit_rate for s in live_strategies}
+        avg_payout_map = {s.name: getattr(s, "avg_payout", None) for s in live_strategies}
 
         for race_id, horses in races.items():
             if not horses:
@@ -270,7 +273,11 @@ def _save_signals(feat_rows: list, live_strategies: list):
             h = horses[0]
             for strategy in live_strategies:
                 for sig in apply_strategy(horses, strategy):
-                    ev_mark, _ = _ev_label(sig.odds, hit_rate_map.get(sig.strategy))
+                    ev_mark, _ = _ev_label(
+                        sig.odds,
+                        hit_rate_map.get(sig.strategy),
+                        avg_payout=avg_payout_map.get(sig.strategy),
+                    )
                     c.execute(_db.sql("""
                         INSERT OR IGNORE INTO signals
                         (date, race_id, venue, race_no, strategy, bet_type,
@@ -342,18 +349,165 @@ def cmd_grade_signals():
     logger.info(f"signals 照合完了: {updated}件更新")
 
 
+def cmd_retro(start_date: str, end_date: str):
+    """指定期間の過去データに対してシミュレーション予想を実行し、結果照合まで行う。
+    start_date / end_date: YYYY-MM-DD 形式
+    """
+    from data_fetcher import load_from_db, load_payouts_from_db
+    from feature_engine import build_features, group_by_race
+    from strategy_engine import apply_strategy
+    from report_generator import _ev_label
+    from datetime import datetime as _dt, date as _date, timedelta as _td
+    import db as _db
+
+    logger.info(f"=== レトロシミュレーション開始: {start_date} 〜 {end_date} ===")
+
+    # 期間内のデータをロード（余裕を持って30日前まで読む）
+    days_back = (_date.today() - _date.fromisoformat(start_date)).days + 30
+    rows, lines_by_race = load_from_db(days=days_back)
+    if not rows:
+        logger.error("DBにデータがありません")
+        return
+
+    enriched = build_features(rows, lines_by_race)
+
+    # 対象期間に絞り込む
+    target = [r for r in enriched if start_date <= r.get("date", "") <= end_date]
+    logger.info(f"対象期間のエントリ: {len(target)}件")
+
+    live_strategies = load_live_strategies()
+    payouts_by_race = load_payouts_from_db(days=days_back)
+
+    conn = _db.get_connection()
+    c    = _db.get_cursor(conn)
+    now  = _dt.now().isoformat()
+    hit_rate_map   = {s.name: s.hit_rate for s in live_strategies}
+    avg_payout_map = {s.name: getattr(s, "avg_payout", None) for s in live_strategies}
+
+    races = group_by_race(target)
+    saved = 0
+    for race_id, horses in races.items():
+        if not horses:
+            continue
+        h = horses[0]
+        payouts = payouts_by_race.get(race_id, [])
+        payout_map = {(p["bet_type"].lower(), p["car_no1"]): p["payout"] for p in payouts}
+        payout_map.update({(p["bet_type"].lower(), p["car_no2"]): p["payout"] for p in payouts if p.get("car_no2")})
+
+        # 結果が取得済みかチェック
+        c.execute(_db.sql(
+            "SELECT COUNT(*) AS cnt FROM results WHERE race_id = ? AND finish_pos IS NOT NULL"
+        ), (race_id,))
+        res_row = c.fetchone()
+        has_result = res_row and dict(res_row)["cnt"] > 0
+
+        for strategy in live_strategies:
+            for sig in apply_strategy(horses, strategy):
+                ev_mark, _ = _ev_label(
+                    sig.odds,
+                    hit_rate_map.get(sig.strategy),
+                    avg_payout=avg_payout_map.get(sig.strategy),
+                )
+                # 的中判定
+                key = (sig.bet_type.lower(), sig.car_no)
+                if has_result:
+                    if key in payout_map:
+                        is_hit = 1
+                        actual_payout = payout_map[key]
+                    else:
+                        is_hit = 0
+                        actual_payout = 0
+                else:
+                    is_hit = None
+                    actual_payout = None
+
+                c.execute(_db.sql("""
+                    INSERT OR IGNORE INTO signals
+                    (date, race_id, venue, race_no, strategy, bet_type,
+                     axis_car, racer_name, odds_at_pick, ev_mark,
+                     is_hit, actual_payout, created_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """), (
+                    h.get("date", ""), race_id,
+                    h.get("venue", ""), h.get("race_no", 0),
+                    sig.strategy, sig.bet_type,
+                    sig.car_no, sig.racer_name, sig.odds,
+                    ev_mark, is_hit, actual_payout,
+                    f"retro_{now}",
+                ))
+                saved += c.rowcount
+
+    conn.commit()
+    conn.close()
+
+    # avg_payout を戦略ごとに計算して live_strategies.json を更新
+    conn2 = _db.get_connection()
+    c2    = _db.get_cursor(conn2)
+    for strategy in live_strategies:
+        c2.execute(_db.sql("""
+            SELECT AVG(actual_payout) AS avg_p
+            FROM signals
+            WHERE strategy = ? AND is_hit = 1 AND actual_payout > 0
+        """), (strategy.name,))
+        row = c2.fetchone()
+        if row:
+            avg_p = dict(row).get("avg_p")
+            if avg_p:
+                strategy.avg_payout = round(avg_p, 1)
+    conn2.close()
+    save_live_strategies(live_strategies)
+
+    logger.info(f"レトロシミュレーション完了: {saved}件保存")
+
+    # サマリー表示
+    conn3 = _db.get_connection()
+    c3    = _db.get_cursor(conn3)
+    c3.execute(_db.sql("""
+        SELECT strategy, bet_type,
+               COUNT(*) AS total,
+               SUM(CASE WHEN is_hit=1 THEN 1 ELSE 0 END) AS hits,
+               SUM(CASE WHEN is_hit=1 THEN actual_payout ELSE 0 END) AS payout_sum
+        FROM signals
+        WHERE created_at LIKE 'retro_%'
+          AND date >= ? AND date <= ?
+        GROUP BY strategy, bet_type
+    """), (start_date, end_date))
+    rows_summary = [dict(r) for r in c3.fetchall()]
+    conn3.close()
+
+    print(f"\n{'='*55}")
+    print(f"  レトロシミュレーション結果  {start_date} 〜 {end_date}")
+    print(f"{'='*55}")
+    for r in rows_summary:
+        total   = r["total"] or 0
+        hits    = r["hits"] or 0
+        paid    = r["payout_sum"] or 0
+        invest  = total * 100
+        roi     = (paid - invest) / invest * 100 if invest > 0 else 0
+        hit_r   = hits / total * 100 if total > 0 else 0
+        print(
+            f"  {r['strategy']:12s} {r['bet_type']:10s}"
+            f"  {total}件 的中{hits}件({hit_r:.0f}%)"
+            f"  投資{invest:,}円 払戻{paid:,}円  ROI {roi:+.1f}%"
+        )
+    print(f"{'='*55}\n")
+
+
 def main():
     parser = argparse.ArgumentParser(description="PISTA 競輪AI予想システム")
     parser.add_argument("--fetch",    action="store_true", help="データ取得")
     parser.add_argument("--optimize", action="store_true", help="バックテスト＆最適化（ルールベース）")
     parser.add_argument("--ml",       action="store_true", help="XGBoostによるML最適化")
     parser.add_argument("--picks",    action="store_true", help="今日の推奨車券")
+    parser.add_argument("--retro",    action="store_true", help="レトロシミュレーション（--start〜--end）")
     parser.add_argument("--years",    type=int, default=2,   help="取得年数（--fetch 時）")
     parser.add_argument("--date",     type=str, default=None, help="指定日 YYYYMMDD（--fetch 時）")
     parser.add_argument("--trials",   type=int, default=300, help="最適化試行数")
+    parser.add_argument("--start",    type=str, default=None, help="レトロ開始日 YYYY-MM-DD")
+    parser.add_argument("--end",      type=str, default=None, help="レトロ終了日 YYYY-MM-DD")
     args = parser.parse_args()
 
-    if not any([args.fetch, args.optimize, args.ml, args.picks]):
+    if not any([args.fetch, args.optimize, args.ml, args.picks, args.retro]):
         parser.print_help()
         return
 
@@ -368,6 +522,12 @@ def main():
 
     if args.ml:
         cmd_ml()
+
+    if args.retro:
+        from datetime import date as _date, timedelta as _td
+        start = args.start or (_date.today() - _td(days=7)).isoformat()
+        end   = args.end   or _date.today().isoformat()
+        cmd_retro(start, end)
 
     if args.picks:
         cmd_picks(live_strategies=live_strategies)
