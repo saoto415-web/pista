@@ -420,7 +420,7 @@ elif page == "📈 成績・収支":
         st.subheader("🤖 AI予想の成績")
         st.caption("AIが予想した車券を自動記録し、レース後に的中/外れを自動判定します")
 
-        # 🔄 更新・照合ボタン
+        # ── ボタン行
         col_ref, col_fetch = st.columns([1, 2])
         with col_ref:
             if st.button("🔄 表示更新", key="refresh_signals"):
@@ -450,54 +450,50 @@ elif page == "📈 成績・収支":
                     _lg(f"❌ エラー: {e}\n{_tb.format_exc()}")
                     st.error(f"エラー: {e}")
                 st.rerun()
-        st.caption("レースが終わったら「今日の結果を取得」を押すと的中/外れが反映されます（毎日21時頃に自動更新）")
+        st.caption("AI予想は毎朝10時頃に自動取得・記録。レース後は21時頃に自動で的中/外れを確認します。")
 
-        # 🔁 過去の答え合わせ（列の外に置く：列内のexpanderはStreamlitの制約でボタンが動かない）
-        with st.expander("🔁 過去の答え合わせ"):
-            from datetime import date as _d, timedelta as _td_r
-            rc1, rc2 = st.columns(2)
-            with rc1:
-                _r_start = st.date_input("開始日", value=_d.today() - _td_r(days=7), key="retro_start")
-            with rc2:
-                _r_end = st.date_input("終了日", value=_d.today() - _td_r(days=1), key="retro_end")
-            if st.button("▶ 答え合わせを実行", key="run_retro", type="primary"):
-                _log_area2 = st.empty()
-                _logs2 = []
-                def _lg2(msg):
-                    _logs2.append(msg)
-                    _log_area2.code("\n".join(_logs2))
-                try:
-                    import sys as _sys2
-                    _sys2.path.insert(0, str(BASE_DIR))
-                    _lg2(f"▶ {_r_start} 〜 {_r_end} の答え合わせを開始...")
-                    from main import cmd_retro
-                    cmd_retro(str(_r_start), str(_r_end))
-                    _lg2("✅ 完了！")
-                    st.cache_data.clear()
-                    st.success("答え合わせが完了しました！")
-                except Exception as e:
-                    import traceback as _tb2
-                    _lg2(f"❌ エラー: {e}\n{_tb2.format_exc()}")
-                    st.error(f"エラー: {e}")
-                st.rerun()
+        st.divider()
+
+        # ── 期間フィルター
+        from datetime import date as _d, timedelta as _td_r
+        _fc1, _fc2, _fc3 = st.columns([2, 2, 1])
+        with _fc1:
+            _filter_start = st.date_input("表示開始日", value=_d.today() - _td_r(days=7), key="filter_start")
+        with _fc2:
+            _filter_end   = st.date_input("表示終了日",  value=_d.today(),                 key="filter_end")
+        with _fc3:
+            st.markdown("<br>", unsafe_allow_html=True)
+            _preset_week = st.button("直近7日", key="preset_week")
+        if _preset_week:
+            # ボタンで7日にリセット（session_stateで制御）
+            st.session_state["filter_start"] = _d.today() - _td_r(days=7)
+            st.session_state["filter_end"]   = _d.today()
+            st.rerun()
+
+        _start_str = str(_filter_start)
+        _end_str   = str(_filter_end)
 
         df_sig = query_db("""
             SELECT date, venue, race_no, strategy, bet_type,
                    axis_car, racer_name, odds_at_pick, ev_mark,
                    is_hit, actual_payout
             FROM signals
+            WHERE date >= ? AND date <= ?
             ORDER BY date DESC, race_no
-        """)
+        """, params=(_start_str, _end_str))
 
         if df_sig.empty:
-            st.info("まだAI予想の記録がありません。「最新予想を取得」を押すと記録が始まります。")
+            st.info(f"📭 {_start_str} 〜 {_end_str} の期間に記録されたAI予想はありません。")
         else:
+            period_label = f"{_start_str} 〜 {_end_str}"
+
             # 照合済みデータのみで集計
             df_graded = df_sig[df_sig["is_hit"].notna()].copy()
             df_graded["is_hit"] = df_graded["is_hit"].astype(int)
             df_graded["actual_payout"] = df_graded["actual_payout"].fillna(0).astype(int)
 
             if not df_graded.empty:
+                st.caption(f"📅 集計期間: {period_label}　（結果確認済みのみ）")
                 total   = len(df_graded)
                 hits    = df_graded["is_hit"].sum()
                 hit_pct = hits / total * 100 if total else 0
@@ -506,11 +502,11 @@ elif page == "📈 成績・収支":
                 roi = (total_paid - total_bet) / total_bet * 100 if total_bet else 0
 
                 c1, c2, c3, c4, c5 = st.columns(5)
-                c1.metric("結果確認済み", f"{total}件")
+                c1.metric("予想数",   f"{total}件")
                 c2.metric("的中数",   f"{int(hits)}件")
                 c3.metric("的中率",   f"{hit_pct:.1f}%")
                 c4.metric("払戻合計", f"{total_paid:,}円")
-                c5.metric("ROI",      f"{roi:+.1f}%",
+                c5.metric("収益率",   f"{roi:+.1f}%",
                           delta_color="normal" if roi >= 0 else "inverse")
 
                 st.divider()
@@ -518,14 +514,14 @@ elif page == "📈 成績・収支":
                 # 戦略別集計
                 st.subheader("戦略別成績")
                 grp = df_graded.groupby("strategy").agg(
-                    賭回数=("is_hit", "count"),
+                    予想数=("is_hit", "count"),
                     的中数=("is_hit", "sum"),
                     払戻合計=("actual_payout", "sum"),
                 ).reset_index()
-                grp["的中率(%)"] = (grp["的中数"] / grp["賭回数"] * 100).round(1)
-                grp["投資額"]    = grp["賭回数"] * 100
-                grp["ROI(%)"]    = ((grp["払戻合計"] - grp["投資額"]) / grp["投資額"] * 100).round(1)
-                st.dataframe(grp[["strategy","賭回数","的中数","的中率(%)","払戻合計","ROI(%)"]],
+                grp["的中率(%)"] = (grp["的中数"] / grp["予想数"] * 100).round(1)
+                grp["投資額"]    = grp["予想数"] * 100
+                grp["収益率(%)"] = ((grp["払戻合計"] - grp["投資額"]) / grp["投資額"] * 100).round(1)
+                st.dataframe(grp[["strategy","予想数","的中数","的中率(%)","払戻合計","収益率(%)"]],
                              hide_index=True, use_container_width=True)
 
                 # 累積損益チャート
@@ -534,8 +530,8 @@ elif page == "📈 成績・収支":
                 df_sorted["損益"] = df_sorted["actual_payout"] - 100
                 df_sorted["累積損益"] = df_sorted["損益"].cumsum()
                 fig_cum = px.line(df_sorted, y="累積損益",
-                                  labels={"index": "シグナル番号", "累積損益": "累積損益（円）"},
-                                  title="累積損益推移（1点100円換算）",
+                                  labels={"index": "予想番号", "累積損益": "累積損益（円）"},
+                                  title=f"損益の推移（1点100円換算）　{period_label}",
                                   color_discrete_sequence=["#2ecc71"])
                 fig_cum.add_hline(y=0, line_dash="dash", line_color="gray")
                 fig_cum.update_layout(
@@ -544,7 +540,7 @@ elif page == "📈 成績・収支":
                 )
                 st.plotly_chart(fig_cum, use_container_width=True)
 
-            # ── シグナル詳細（買い方指示カード形式）
+            # ── 予想の詳細（日付ごとカード）
             st.divider()
             st.subheader("📋 予想の詳細")
 
