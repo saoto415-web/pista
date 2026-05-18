@@ -30,7 +30,7 @@ st.set_page_config(page_title="PISTA 競輪AI", page_icon="🚴", layout="wide")
 st.sidebar.title("🚴 PISTA 競輪AI")
 page = st.sidebar.radio(
     "ページ選択",
-    ["🏆 Today's Picks", "📈 収支・実績", "📊 戦略パフォーマンス", "🗃️ DB概要", "🔍 レース検索"],
+    ["🏆 今日の買い目", "📈 成績・収支", "📊 戦略の成績", "🗃️ DB概要", "🔍 レース検索"],
 )
 
 # ──────────────────────────────────────────────
@@ -205,8 +205,8 @@ def parse_picks_report(text: str) -> list[dict]:
     return [r for r in races if r["picks"]]
 
 
-if page == "🏆 Today's Picks":
-    st.title("🏆 今日の注目選手")
+if page == "🏆 今日の買い目":
+    st.title("🏆 今日の買い目")
     st.caption(f"生成日: {date.today()}")
 
     strat_path = BASE_DIR / "reports" / "live_strategies.json"
@@ -214,7 +214,7 @@ if page == "🏆 Today's Picks":
 
     col1, col2, col3 = st.columns([3, 1, 1])
     with col1:
-        if st.button("🔄 ピックス更新（keirin.jp取得）", type="primary"):
+        if st.button("🔄 最新予想を取得", type="primary"):
             log_area = st.empty()
             logs = []
             def _log(msg):
@@ -240,7 +240,7 @@ if page == "🏆 Today's Picks":
     with col2:
         if strat_path.exists():
             strategies = json.loads(strat_path.read_text(encoding="utf-8"))
-            st.metric("実際の戦略戦略数", f"{len(strategies)} 戦略")
+            st.metric("使用中の戦略", f"{len(strategies)} 戦略")
     with col3:
         if picks_log.exists():
             mtime = picks_log.stat().st_mtime
@@ -257,7 +257,7 @@ if page == "🏆 Today's Picks":
         picks_text = load_picks_from_db()
 
     if not picks_text:
-        st.info("「ピックス更新」ボタンを押すと、今日の推奨車券を取得します。")
+        st.info("「最新予想を取得」ボタンを押すと、今日の推奨を表示します。")
     else:
         # 出走表未公開メッセージの場合
         if "出走表取得失敗" in picks_text or ("開催なし" in picks_text and "【" not in picks_text):
@@ -274,9 +274,9 @@ if page == "🏆 Today's Picks":
         else:
             is_provisional = "オッズ未確定" in picks_text
             if is_provisional:
-                st.warning("⚠️ オッズ未確定（暫定ピックス）— 10〜11時以降に再取得するとオッズ付きで表示されます")
+                st.warning("⚠️ オッズはまだ確定していません — 10〜11時以降に再取得するとオッズが表示されます")
 
-            st.subheader(f"📋 推奨レース一覧（{len(races)}件）")
+            st.subheader(f"📋 今日の推奨（{len(races)}件）")
 
             # 発走時刻 → 時系列ソート（時刻がある場合は時刻順、ない場合はrace_no順）
             def _sort_key(r):
@@ -340,7 +340,7 @@ if page == "🏆 Today's Picks":
                 is_prov      = ev_mark == "🔶"
                 bg_color  = "#e8f5e9" if is_go else ("#fff3e0" if is_prov else "#fff8e1")
                 bd_color  = "#2ecc71" if is_go else ("#e67e22" if is_prov else "#f39c12")
-                go_label  = "◎ 賭け推奨" if is_go else ("🔶 暫定推奨" if is_prov else "△ 見送り推奨")
+                go_label  = "◎ 買い推奨" if is_go else ("🔶 暫定推奨" if is_prov else "△ 様子見")
 
                 start_time = r.get("start_time", "")
                 time_badge = f"🕐{start_time} " if start_time else ""
@@ -361,7 +361,7 @@ if page == "🏆 Today's Picks":
                     st.markdown(
                         f"""
 <div style="background:{bg_color};border-left:4px solid {bd_color};padding:10px 16px;border-radius:4px;margin-bottom:12px">
-<b>🎯 買い方（ウィンチケット操作）</b><br>
+<b>🎯 買い方ガイド（ウィンチケット）</b><br>
 ① 「{bet_name}」を選択<br>
 ② 軸：<b>{pick['car']}車</b>（{pick['name']}）を選択<br>
 ③ 相手：<b>{aite}車</b>をすべて選択<br>
@@ -392,28 +392,33 @@ if page == "🏆 Today's Picks":
     # 実運用戦略の詳細
     if strat_path.exists():
         st.divider()
-        st.subheader("実運用戦略一覧")
+        st.subheader("使用中の戦略")
         strategies = json.loads(strat_path.read_text(encoding="utf-8"))
         for s in strategies:
             with st.expander(f"**{s['name']}** ({s['bet_type'].upper()})"):
-                st.json(s["params"])
+                hr = s.get("hit_rate")
+                ap = s.get("avg_payout")
+                bet = "2車複" if s.get("bet_type","").lower() == "nishafuku" else "ワイド"
+                hr_str = f"{hr*100:.1f}%" if hr else "-"
+                ap_str = f"平均{ap:.0f}円" if ap else "-"
+                st.markdown(f"**賭種:** {bet}　**的中率:** {hr_str}　**平均払戻:** {ap_str}")
 
 
 # ──────────────────────────────────────────────
 # ページ 2: 収支・実績
 # ──────────────────────────────────────────────
 
-elif page == "📈 収支・実績":
-    st.title("📈 収支・実績")
+elif page == "📈 成績・収支":
+    st.title("📈 成績・収支")
 
-    tab_signal, tab_bet = st.tabs(["🤖 シグナル実績（自動）", "💰 実際の賭け記録（手動）"])
+    tab_signal, tab_bet = st.tabs(["🤖 AI予想の成績", "💰 自分の賭け記録"])
 
     # ────────────────────────────────
     # タブ1: シグナル実績
     # ────────────────────────────────
     with tab_signal:
-        st.subheader("🤖 AIシグナル実績")
-        st.caption("--picks 実行時に全シグナルを記録し、--fetch 後に自動的に的中/外れを照合します")
+        st.subheader("🤖 AI予想の成績")
+        st.caption("AIが予想した車券を自動記録し、レース後に的中/外れを自動判定します")
 
         # 🔄 更新・照合ボタン
         col_ref, col_fetch, col_retro = st.columns([1, 2, 2])
@@ -422,8 +427,8 @@ elif page == "📈 収支・実績":
                 st.cache_data.clear()
                 st.rerun()
         with col_fetch:
-            if st.button("📥 当日結果取得 & 照合", key="fetch_and_grade",
-                         help="keirin.jpから今日の結果を取得してシグナルを照合します（2〜3分かかります）"):
+            if st.button("📥 今日の結果を取得", key="fetch_and_grade",
+                         help="今日のレース結果を取得して的中/外れを確認します（2〜3分かかります）"):
                 _log_area = st.empty()
                 _logs = []
                 def _lg(msg):
@@ -432,25 +437,25 @@ elif page == "📈 収支・実績":
                 try:
                     import sys as _sys
                     _sys.path.insert(0, str(BASE_DIR))
-                    _lg("▶ 最新データ取得中（chariloto.com）...")
+                    _lg("▶ レース結果を取得中...")
                     from main import cmd_fetch, cmd_grade_signals
                     cmd_fetch(years=0, specific_date=None)   # 直近7日分取得
-                    _lg("✅ データ取得完了。照合中...")
+                    _lg("✅ 取得完了。的中/外れを確認中...")
                     cmd_grade_signals()
-                    _lg("✅ 照合完了！")
+                    _lg("✅ 確認完了！")
                     st.cache_data.clear()
-                    st.success("当日結果の取得 & 照合が完了しました！")
+                    st.success("今日のレース結果を取得しました！")
                 except Exception as e:
                     import traceback as _tb
                     _lg(f"❌ エラー: {e}\n{_tb.format_exc()}")
                     st.error(f"エラー: {e}")
                 st.rerun()
         with col_retro:
-            with st.expander("🔁 レトロシミュレーション"):
+            with st.expander("🔁 過去の答え合わせ"):
                 from datetime import date as _d, timedelta as _td_r
                 _r_start = st.date_input("開始日", value=_d.today() - _td_r(days=7), key="retro_start")
                 _r_end   = st.date_input("終了日", value=_d.today() - _td_r(days=1), key="retro_end")
-                if st.button("▶ 過去データで予想を再実行", key="run_retro"):
+                if st.button("▶ 答え合わせを実行", key="run_retro"):
                     _log_area2 = st.empty()
                     _logs2 = []
                     def _lg2(msg):
@@ -459,18 +464,18 @@ elif page == "📈 収支・実績":
                     try:
                         import sys as _sys2
                         _sys2.path.insert(0, str(BASE_DIR))
-                        _lg2(f"▶ {_r_start} 〜 {_r_end} のシミュレーション開始...")
+                        _lg2(f"▶ {_r_start} 〜 {_r_end} の答え合わせを開始...")
                         from main import cmd_retro
                         cmd_retro(str(_r_start), str(_r_end))
                         _lg2("✅ 完了！")
                         st.cache_data.clear()
-                        st.success("レトロシミュレーション完了！")
+                        st.success("答え合わせが完了しました！")
                     except Exception as e:
                         import traceback as _tb2
                         _lg2(f"❌ エラー: {e}\n{_tb2.format_exc()}")
                         st.error(f"エラー: {e}")
                     st.rerun()
-        st.caption("レースが終わったら「当日結果取得 & 照合」を押すと的中/外れが反映されます（自動は21:00 JST頃）")
+        st.caption("レースが終わったら「今日の結果を取得」を押すと的中/外れが反映されます（毎日21時頃に自動更新）")
 
         df_sig = query_db("""
             SELECT date, venue, race_no, strategy, bet_type,
@@ -481,7 +486,7 @@ elif page == "📈 収支・実績":
         """)
 
         if df_sig.empty:
-            st.info("シグナルがまだ記録されていません。「ピックス更新」を実行すると記録が始まります。")
+            st.info("まだAI予想の記録がありません。「最新予想を取得」を押すと記録が始まります。")
         else:
             # 照合済みデータのみで集計
             df_graded = df_sig[df_sig["is_hit"].notna()].copy()
@@ -497,7 +502,7 @@ elif page == "📈 収支・実績":
                 roi = (total_paid - total_bet) / total_bet * 100 if total_bet else 0
 
                 c1, c2, c3, c4, c5 = st.columns(5)
-                c1.metric("照合済み", f"{total}件")
+                c1.metric("結果確認済み", f"{total}件")
                 c2.metric("的中数",   f"{int(hits)}件")
                 c3.metric("的中率",   f"{hit_pct:.1f}%")
                 c4.metric("払戻合計", f"{total_paid:,}円")
@@ -520,7 +525,7 @@ elif page == "📈 収支・実績":
                              hide_index=True, use_container_width=True)
 
                 # 累積損益チャート
-                st.subheader("累積損益（照合済みシグナル）")
+                st.subheader("損益の推移")
                 df_sorted = df_graded.sort_values("date").reset_index(drop=True)
                 df_sorted["損益"] = df_sorted["actual_payout"] - 100
                 df_sorted["累積損益"] = df_sorted["損益"].cumsum()
@@ -537,7 +542,7 @@ elif page == "📈 収支・実績":
 
             # ── シグナル詳細（買い方指示カード形式）
             st.divider()
-            st.subheader("📋 シグナル詳細（買い方指示付き）")
+            st.subheader("📋 予想の詳細")
 
             # 日付ごとにグループ化して表示
             sig_dates = sorted(df_sig["date"].unique(), reverse=True)
@@ -576,13 +581,13 @@ elif page == "📈 収支・実績":
                             bg_color   = "#ffebee"
                         else:
                             res_icon   = "⏳ 結果待ち"
-                            res_detail = "（--fetch 後に自動照合）"
+                            res_detail = "（今日の結果取得後に自動確認）"
                             bd_color   = "#f39c12"
                             bg_color   = "#fff8e1"
 
                         ev_label_str = (
-                            "◎ 賭け推奨" if ev_go
-                            else ("🔶 暫定推奨" if ev_prov else "△ 見送り推奨")
+                            "◎ 買い推奨" if ev_go
+                            else ("🔶 暫定推奨" if ev_prov else "△ 様子見")
                         )
                         odds_str     = f"{int(odds_val):,}円" if odds_val > 0 else "オッズ未確定"
                         card_title   = (
@@ -598,12 +603,12 @@ elif page == "📈 収支・実績":
                             f"""
 <div style="background:{bg_color};border-left:4px solid {bd_color};
      padding:10px 16px;border-radius:4px;margin:4px 0 10px 0;font-size:0.95em">
-<b>🎯 買い方（ウィンチケット操作）</b><br>
+<b>🎯 買い方ガイド（ウィンチケット）</b><br>
 ① 「{bet_name}」を選択<br>
 ② 軸：<b>{row['axis_car']}車</b>（{row['racer_name']}）を選択<br>
 ③ 相手：残り全車を選択<br>
 ④ 100円 × 組み合わせ数 を購入<br>
-<span style="color:#888;font-size:0.9em">EV判定: {ev_label_str} ／ オッズ目安: {odds_str}</span><br>
+<span style="color:#888;font-size:0.9em">収益性: {ev_label_str} ／ オッズ目安: {odds_str}</span><br>
 <b style="color:{bd_color}">{res_icon} {res_detail}</b>
 </div>
 """,
@@ -734,11 +739,11 @@ elif page == "📈 収支・実績":
 # ページ 3: 戦略パフォーマンス
 # ──────────────────────────────────────────────
 
-elif page == "📊 戦略パフォーマンス":
-    st.title("📊 戦略パフォーマンス")
+elif page == "📊 戦略の成績":
+    st.title("📊 戦略の成績")
 
     # ── ルールベース最適化結果 ──
-    st.subheader("ルールベース戦略（--optimize）")
+    st.subheader("AI戦略の成績")
     opt_results = parse_optimize_log()
     if opt_results:
         df_opt = pd.DataFrame(opt_results)
