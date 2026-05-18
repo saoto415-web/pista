@@ -421,7 +421,7 @@ elif page == "📈 成績・収支":
         st.caption("AIが予想した車券を自動記録し、レース後に的中/外れを自動判定します")
 
         # 🔄 更新・照合ボタン
-        col_ref, col_fetch, col_retro = st.columns([1, 2, 2])
+        col_ref, col_fetch = st.columns([1, 2])
         with col_ref:
             if st.button("🔄 表示更新", key="refresh_signals"):
                 st.cache_data.clear()
@@ -439,7 +439,7 @@ elif page == "📈 成績・収支":
                     _sys.path.insert(0, str(BASE_DIR))
                     _lg("▶ レース結果を取得中...")
                     from main import cmd_fetch, cmd_grade_signals
-                    cmd_fetch(years=0, specific_date=None)   # 直近7日分取得
+                    cmd_fetch(years=0, specific_date=None)
                     _lg("✅ 取得完了。的中/外れを確認中...")
                     cmd_grade_signals()
                     _lg("✅ 確認完了！")
@@ -450,32 +450,36 @@ elif page == "📈 成績・収支":
                     _lg(f"❌ エラー: {e}\n{_tb.format_exc()}")
                     st.error(f"エラー: {e}")
                 st.rerun()
-        with col_retro:
-            with st.expander("🔁 過去の答え合わせ"):
-                from datetime import date as _d, timedelta as _td_r
-                _r_start = st.date_input("開始日", value=_d.today() - _td_r(days=7), key="retro_start")
-                _r_end   = st.date_input("終了日", value=_d.today() - _td_r(days=1), key="retro_end")
-                if st.button("▶ 答え合わせを実行", key="run_retro"):
-                    _log_area2 = st.empty()
-                    _logs2 = []
-                    def _lg2(msg):
-                        _logs2.append(msg)
-                        _log_area2.code("\n".join(_logs2))
-                    try:
-                        import sys as _sys2
-                        _sys2.path.insert(0, str(BASE_DIR))
-                        _lg2(f"▶ {_r_start} 〜 {_r_end} の答え合わせを開始...")
-                        from main import cmd_retro
-                        cmd_retro(str(_r_start), str(_r_end))
-                        _lg2("✅ 完了！")
-                        st.cache_data.clear()
-                        st.success("答え合わせが完了しました！")
-                    except Exception as e:
-                        import traceback as _tb2
-                        _lg2(f"❌ エラー: {e}\n{_tb2.format_exc()}")
-                        st.error(f"エラー: {e}")
-                    st.rerun()
         st.caption("レースが終わったら「今日の結果を取得」を押すと的中/外れが反映されます（毎日21時頃に自動更新）")
+
+        # 🔁 過去の答え合わせ（列の外に置く：列内のexpanderはStreamlitの制約でボタンが動かない）
+        with st.expander("🔁 過去の答え合わせ"):
+            from datetime import date as _d, timedelta as _td_r
+            rc1, rc2 = st.columns(2)
+            with rc1:
+                _r_start = st.date_input("開始日", value=_d.today() - _td_r(days=7), key="retro_start")
+            with rc2:
+                _r_end = st.date_input("終了日", value=_d.today() - _td_r(days=1), key="retro_end")
+            if st.button("▶ 答え合わせを実行", key="run_retro", type="primary"):
+                _log_area2 = st.empty()
+                _logs2 = []
+                def _lg2(msg):
+                    _logs2.append(msg)
+                    _log_area2.code("\n".join(_logs2))
+                try:
+                    import sys as _sys2
+                    _sys2.path.insert(0, str(BASE_DIR))
+                    _lg2(f"▶ {_r_start} 〜 {_r_end} の答え合わせを開始...")
+                    from main import cmd_retro
+                    cmd_retro(str(_r_start), str(_r_end))
+                    _lg2("✅ 完了！")
+                    st.cache_data.clear()
+                    st.success("答え合わせが完了しました！")
+                except Exception as e:
+                    import traceback as _tb2
+                    _lg2(f"❌ エラー: {e}\n{_tb2.format_exc()}")
+                    st.error(f"エラー: {e}")
+                st.rerun()
 
         df_sig = query_db("""
             SELECT date, venue, race_no, strategy, bet_type,
