@@ -84,10 +84,15 @@ def load_live_strategies():
 # コマンド実装
 # ============================================================
 
-def cmd_fetch(years: int, specific_date: str | None):
+def cmd_fetch(years: int, specific_date: str | None, days: int | None = None):
     from data_fetcher import run_fetch
-    logger.info(f"=== データ取得開始（{years}年分）===")
-    run_fetch(years=years, specific_date=specific_date)
+    if days is not None:
+        logger.info(f"=== データ取得開始（直近{days}日分）===")
+    elif years == 0:
+        logger.info("=== データ取得開始（直近7日分）===")
+    else:
+        logger.info(f"=== データ取得開始（{years}年分）===")
+    run_fetch(years=years, specific_date=specific_date, days=days)
     logger.info("=== データ取得完了 ===")
 
 
@@ -501,6 +506,7 @@ def main():
     parser.add_argument("--picks",    action="store_true", help="今日の推奨車券")
     parser.add_argument("--retro",    action="store_true", help="レトロシミュレーション（--start〜--end）")
     parser.add_argument("--years",    type=int, default=2,   help="取得年数（--fetch 時）")
+    parser.add_argument("--days",     type=int, default=None, help="取得日数（--fetch 時、--years より優先）")
     parser.add_argument("--date",     type=str, default=None, help="指定日 YYYYMMDD（--fetch 時）")
     parser.add_argument("--trials",   type=int, default=300, help="最適化試行数")
     parser.add_argument("--start",    type=str, default=None, help="レトロ開始日 YYYY-MM-DD")
@@ -514,7 +520,7 @@ def main():
     live_strategies = None
 
     if args.fetch:
-        cmd_fetch(years=args.years, specific_date=args.date)
+        cmd_fetch(years=args.years, specific_date=args.date, days=args.days)
         cmd_grade_signals()   # fetch後にシグナル結果を自動照合
 
     if args.optimize:

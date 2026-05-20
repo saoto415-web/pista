@@ -1674,14 +1674,23 @@ def _save_chariloto_date(venue_code: str, date_str: str) -> int:
 # メイン取得フロー
 # ============================================================
 
-def run_fetch(years: int = 2, specific_date: str | None = None):
+def run_fetch(years: int = 2, specific_date: str | None = None, days: int | None = None):
     """
     データ取得のメインフロー。
     - 過去データ: chariloto.com の各会場ページから開催日リストを取得し結果を保存
     - 今日以降:   keirin.jp から出走表を取得して保存（picks 用の詳細情報）
+
+    days: 指定するとその日数分だけ取得（例: days=7 で直近7日）。years より優先。
+    years=0 は自動的に days=7 として扱う。
     """
     init_db()
-    cutoff_str = (date.today() - timedelta(days=365 * years)).strftime("%Y%m%d")
+    # days 指定 または years=0 → 直近N日分として扱う
+    if days is not None:
+        cutoff_str = (date.today() - timedelta(days=days)).strftime("%Y%m%d")
+    elif years == 0:
+        cutoff_str = (date.today() - timedelta(days=7)).strftime("%Y%m%d")
+    else:
+        cutoff_str = (date.today() - timedelta(days=365 * years)).strftime("%Y%m%d")
     total_saved = 0
 
     if specific_date:

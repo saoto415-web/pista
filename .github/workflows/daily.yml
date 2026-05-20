@@ -2,7 +2,7 @@ name: PISTA 毎日自動実行
 
 on:
   schedule:
-    - cron: '30 21 * * *'   # 毎日 06:30 JST (朝フェッチ: 前日結果取得)
+    - cron: '30 21 * * *'   # 毎日 06:30 JST (朝フェッチ: 前日〜3日前の結果取得)
     - cron: '0 1 * * *'     # 毎日 10:00 JST (picks)
     - cron: '0 12 * * *'    # 毎日 21:00 JST (夕方フェッチ: 当日結果取得・照合)
   workflow_dispatch:         # 手動実行ボタン
@@ -23,7 +23,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install -r requirements.txt
-      - run: python main.py --fetch --years 0   # 直近7日分のみ
+      - run: python main.py --fetch --days 7   # 直近7日分の結果を取得・照合
 
   picks:
     name: 推奨車券生成 (--picks)
