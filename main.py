@@ -286,14 +286,16 @@ def _save_signals(feat_rows: list, live_strategies: list):
                     c.execute(_db.sql("""
                         INSERT OR IGNORE INTO signals
                         (date, race_id, venue, race_no, strategy, bet_type,
-                         axis_car, racer_name, odds_at_pick, ev_mark, created_at)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                         axis_car, racer_name, odds_at_pick, ev_mark, created_at,
+                         start_time)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                     """), (
                         h.get("date", ""), race_id,
                         h.get("venue", ""), h.get("race_no", 0),
                         sig.strategy, sig.bet_type,
                         sig.car_no, sig.racer_name, sig.odds,
                         ev_mark, now,
+                        h.get("start_time", ""),
                     ))
         conn.commit()
         conn.close()

@@ -172,6 +172,12 @@ def init_db():
     except Exception:
         conn.rollback()
         pass
+    try:
+        c.execute("ALTER TABLE signals ADD COLUMN IF NOT EXISTS start_time TEXT")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        pass
 
     c.execute(f"""
         CREATE TABLE IF NOT EXISTS results (
@@ -234,7 +240,8 @@ def init_db():
             ev_mark       TEXT,
             is_hit        INTEGER,
             actual_payout INTEGER,
-            created_at    TEXT
+            created_at    TEXT,
+            start_time    TEXT
         )
     """)
 
