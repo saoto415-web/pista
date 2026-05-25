@@ -99,13 +99,14 @@ def parse_picks_report(text: str) -> list[dict]:
     races = []
     current = None
     for line in text.splitlines():
-        m = re.match(r"【(.+?) R(\d+)", line)
+        m = re.match(r"【(.+?) R(\d+).*?(?:\(([^)]+)\))?】", line)
         if m:
             if current:
                 races.append(current)
             current = {
                 "venue": m.group(1).split("　")[0].strip(),
                 "race":  int(m.group(2)),
+                "grade": m.group(3) or "",
                 "date": "", "bank": "", "start_time": "",
                 "racers": [], "picks": [],
             }
@@ -330,19 +331,48 @@ if page == "🏠 今日の買い目":
         else:
             bd, bg, label = "#9e9e9e", "#f5f5f5", "△ 様子見"
 
-        time_str = f"🕐 {r['start_time']}　" if r.get("start_time") else ""
         odds_str = pick.get("odds_str", "未確定")
+
+        # 発走・締切時刻の計算
+        st_raw = r.get("start_time", "")
+        time_info_html = ""
+        if st_raw and re.match(r"\d{1,2}:\d{2}", st_raw):
+            h, mn = map(int, st_raw.split(":"))
+            close_total = h * 60 + mn - 2
+            close_h, close_m = divmod(close_total, 60)
+            close_str = f"{close_h}:{close_m:02d}"
+            remaining = close_total - now_minutes
+            if remaining > 0:
+                remain_html = f'<span style="color:#e74c3c;font-weight:bold">あと{remaining}分</span>'
+            else:
+                remain_html = '<span style="color:#999">締切済み</span>'
+            time_info_html = (
+                f'<div style="font-size:0.9em;margin-bottom:10px;color:#555">'
+                f'🕐 発走 <b>{st_raw}</b>　'
+                f'🔒 締切 <b>{close_str}</b>　{remain_html}'
+                f'</div>'
+            )
+
+        # 会場情報バッジ
+        grade = r.get("grade", "")
+        bank  = r.get("bank", "")
+        meta_parts = [r["venue"], f"R{r['race']}"]
+        if grade:
+            meta_parts.append(f'<span style="background:#555;color:#fff;padding:1px 7px;border-radius:4px;font-size:0.8em">{grade}</span>')
+        if bank:
+            meta_parts.append(f'<span style="color:#777;font-size:0.85em">バンク{bank}m</span>')
 
         st.markdown(
             f"""
 <div style="border:2px solid {bd};border-radius:10px;padding:16px 20px;margin-bottom:16px">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-    <div style="font-size:1.25em;font-weight:bold">
-      {time_str}{r['venue']} R{r['race']}
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+    <div style="font-size:1.2em;font-weight:bold">
+      {"　".join(meta_parts[:2])}&nbsp;{"　".join(meta_parts[2:])}
       &nbsp;<span style="font-size:0.8em;background:#444;color:#fff;padding:2px 10px;border-radius:4px">{bet_name}</span>
     </div>
     <span style="background:{bd};color:white;padding:5px 16px;border-radius:20px;font-weight:bold">{label}</span>
   </div>
+  {time_info_html}
   <div style="background:{bg};border-left:5px solid {bd};padding:14px 18px;border-radius:0 8px 8px 0">
     <div style="font-size:1.05em;margin-bottom:8px">
       <b>① 「{bet_name}」を選択</b><br>
