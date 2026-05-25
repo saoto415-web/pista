@@ -489,25 +489,17 @@ elif page == "📊 成績を見る":
 
         st.divider()
 
-        # 期間フィルター
-        _fc1, _fc2, _fc3 = st.columns([2, 2, 1])
-        with _fc1:
-            _filter_start = st.date_input(
-                "開始日", value=date.today() - timedelta(days=7), key="filter_start"
-            )
-        with _fc2:
-            _filter_end = st.date_input(
-                "終了日", value=date.today(), key="filter_end"
-            )
-        with _fc3:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("直近7日", key="preset_week"):
-                st.session_state["filter_start"] = date.today() - timedelta(days=7)
-                st.session_state["filter_end"]   = date.today()
-                st.rerun()
-
-        _start_str = str(_filter_start)
-        _end_str   = str(_filter_end)
+        # 期間プリセット
+        _period_labels = {"直近7日": 7, "直近30日": 30, "全期間": None}
+        _sel = st.segmented_control(
+            "期間", list(_period_labels.keys()), default="直近7日", key="period_preset"
+        )
+        _days_back = _period_labels.get(_sel, 7)
+        if _days_back is not None:
+            _start_str = str(date.today() - timedelta(days=_days_back))
+        else:
+            _start_str = "2000-01-01"
+        _end_str = str(date.today())
 
         df_sig = query_db("""
             SELECT date, venue, race_no, strategy, bet_type,
@@ -519,7 +511,7 @@ elif page == "📊 成績を見る":
         """, params=(_start_str, _end_str))
 
         if df_sig.empty:
-            st.info(f"📭 {_start_str} 〜 {_end_str} の期間に記録されたAI予想はありません。")
+            st.info(f"📭 この期間に記録されたAI予想はありません。")
         else:
             # 集計（結果確認済みのみ）
             df_graded = df_sig[df_sig["is_hit"].notna()].copy()
