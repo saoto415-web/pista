@@ -650,7 +650,8 @@ elif page == "📊 成績を見る":
                                      else ("🔶 暫定推奨" if ev_prov else "△ 様子見"))
                         st_raw    = str(row.get("start_time") or "")
                         grade_str = str(row.get("grade") or "")
-                        bank_str  = str(row.get("bank_length") or "")
+                        _bank_raw = row.get("bank_length")
+                        bank_str  = str(int(float(_bank_raw))) if _bank_raw else ""
 
                         # 発走時刻・グレード・バンク
                         meta_parts = []
