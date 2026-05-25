@@ -651,7 +651,10 @@ elif page == "📊 成績を見る":
                         st_raw    = str(row.get("start_time") or "")
                         grade_str = str(row.get("grade") or "")
                         _bank_raw = row.get("bank_length")
-                        bank_str  = str(int(float(_bank_raw))) if _bank_raw else ""
+                        try:
+                            bank_str = str(int(float(_bank_raw))) if _bank_raw else ""
+                        except (ValueError, TypeError):
+                            bank_str = str(_bank_raw) if _bank_raw else ""
 
                         # 発走時刻・グレード・バンク
                         meta_parts = []
