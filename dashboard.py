@@ -532,12 +532,14 @@ elif page == "📊 成績を見る":
         _end_str = str(date.today())
 
         df_sig = query_db("""
-            SELECT date, venue, race_no, strategy, bet_type,
-                   axis_car, racer_name, odds_at_pick, ev_mark,
-                   is_hit, actual_payout
-            FROM signals
-            WHERE date >= ? AND date <= ?
-            ORDER BY date DESC, race_no
+            SELECT s.date, s.venue, s.race_no, s.strategy, s.bet_type,
+                   s.axis_car, s.racer_name, s.odds_at_pick, s.ev_mark,
+                   s.is_hit, s.actual_payout,
+                   r.start_time, r.grade, r.bank_length
+            FROM signals s
+            LEFT JOIN races r ON s.race_id = r.race_id
+            WHERE s.date >= ? AND s.date <= ?
+            ORDER BY s.date DESC, s.race_no
         """, params=(_start_str, _end_str))
 
         if df_sig.empty:
@@ -642,14 +644,31 @@ elif page == "📊 成績を見る":
                         else:
                             ico = "⏳"; txt = "結果待ち"; lc = "#f39c12"
 
-                        odds_str = f"{int(odds_val):,}円" if odds_val > 0 else "未確定"
-                        ev_prov  = ev_mark in ("🔶", "retro")
-                        ev_str   = ("◎ 買い推奨" if ev_mark == "◎"
-                                    else ("🔶 暫定推奨" if ev_prov else "△ 様子見"))
+                        odds_str  = f"{int(odds_val):,}円" if odds_val > 0 else "未確定"
+                        ev_prov   = ev_mark in ("🔶", "retro")
+                        ev_str    = ("◎ 買い推奨" if ev_mark == "◎"
+                                     else ("🔶 暫定推奨" if ev_prov else "△ 様子見"))
+                        st_raw    = str(row.get("start_time") or "")
+                        grade_str = str(row.get("grade") or "")
+                        bank_str  = str(row.get("bank_length") or "")
+
+                        # 発走時刻・グレード・バンク
+                        meta_parts = []
+                        if st_raw:
+                            meta_parts.append(f"🕐 {st_raw}")
+                        if grade_str:
+                            meta_parts.append(grade_str)
+                        if bank_str:
+                            meta_parts.append(f"バンク{bank_str}m")
+                        meta_html = (
+                            f'<span style="color:#aaa;font-size:0.82em">{"　".join(meta_parts)}</span><br>'
+                            if meta_parts else ""
+                        )
 
                         st.markdown(
                             f"""
-<div style="border-left:4px solid {lc};padding:6px 14px;margin:5px 0;border-radius:0 6px 6px 0;background:#1a1a2e">
+<div style="border-left:4px solid {lc};padding:8px 14px;margin:5px 0;border-radius:0 6px 6px 0;background:#1a1a2e">
+  {meta_html}
   {ico} &nbsp;<b>{row['venue']} R{row['race_no']}</b>　{bet_name}　軸 <b>{row['axis_car']}車 {row['racer_name']}</b>
   &nbsp;<span style="color:#aaa;font-size:0.85em">← {row['strategy']}</span><br>
   <span style="color:{lc}">{txt}</span>
