@@ -208,7 +208,7 @@ STRATEGY_INFO = {
 st.sidebar.title("🚴 PISTA 競輪AI")
 page = st.sidebar.radio(
     "",
-    ["🏠 今日の買い目", "📋 戦略一覧", "📊 成績を見る", "⚙️ ツール"],
+    ["🏠 今日の買い目", "📊 成績を見る", "📋 戦略一覧", "⚙️ ツール"],
     label_visibility="collapsed",
 )
 
