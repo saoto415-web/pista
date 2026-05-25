@@ -534,7 +534,8 @@ elif page == "📊 成績を見る":
         df_sig = query_db("""
             SELECT s.date, s.venue, s.race_no, s.strategy, s.bet_type,
                    s.axis_car, s.racer_name, s.odds_at_pick, s.ev_mark,
-                   s.is_hit, s.actual_payout, s.start_time,
+                   s.is_hit, s.actual_payout,
+                   COALESCE(r.start_time, '') AS start_time,
                    r.grade, r.bank_length
             FROM signals s
             LEFT JOIN races r ON s.race_id = r.race_id
