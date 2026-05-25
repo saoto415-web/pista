@@ -469,28 +469,22 @@ elif page == "📊 成績を見る":
     # ────────────────────────────────
     with tab_ai:
         # ボタン行
-        col_ref, col_fetch = st.columns([1, 2])
-        with col_ref:
-            if st.button("🔄 表示更新", key="refresh_signals"):
-                st.cache_data.clear()
-                st.rerun()
-        with col_fetch:
-            if st.button("📥 今日の結果を取得", key="fetch_and_grade",
-                         help="今日のレース結果を取得して的中/外れを確認します（2〜3分かかります）"):
-                with st.spinner("レース結果を取得中..."):
-                    try:
-                        import sys as _sys
-                        _sys.path.insert(0, str(BASE_DIR))
-                        from main import cmd_fetch, cmd_grade_signals
-                        cmd_fetch(years=0, specific_date=None)
-                        cmd_grade_signals()
-                        st.cache_data.clear()
-                        st.success("✅ 確認完了！")
-                    except Exception as e:
-                        import traceback as _tb
-                        st.error(f"エラー: {e}")
-                        st.code(_tb.format_exc())
-                st.rerun()
+        if st.button("📥 今日の結果を取得", key="fetch_and_grade",
+                     help="今日のレース結果を取得して的中/外れを確認します（2〜3分かかります）"):
+            with st.spinner("レース結果を取得中..."):
+                try:
+                    import sys as _sys
+                    _sys.path.insert(0, str(BASE_DIR))
+                    from main import cmd_fetch, cmd_grade_signals
+                    cmd_fetch(years=0, specific_date=None)
+                    cmd_grade_signals()
+                    st.cache_data.clear()
+                    st.success("✅ 確認完了！")
+                except Exception as e:
+                    import traceback as _tb
+                    st.error(f"エラー: {e}")
+                    st.code(_tb.format_exc())
+            st.rerun()
         st.caption("毎朝10時に自動取得・記録。毎晩21時に的中/外れを自動確認します。")
 
         st.divider()
