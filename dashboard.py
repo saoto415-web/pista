@@ -649,13 +649,20 @@ elif page == "📊 成績を見る":
                         ev_prov   = ev_mark in ("🔶", "retro")
                         ev_str    = ("◎ 買い推奨" if ev_mark == "◎"
                                      else ("🔶 暫定推奨" if ev_prov else "△ 様子見"))
-                        st_raw    = str(row.get("start_time") or "")
-                        grade_str = str(row.get("grade") or "")
+                        def _safe_str(v):
+                            import math
+                            if v is None: return ""
+                            if isinstance(v, float) and math.isnan(v): return ""
+                            return str(v)
+
+                        st_raw    = _safe_str(row.get("start_time"))
+                        grade_str = _safe_str(row.get("grade"))
                         _bank_raw = row.get("bank_length")
                         try:
-                            bank_str = str(int(float(_bank_raw))) if _bank_raw else ""
+                            import math as _math
+                            bank_str = str(int(float(_bank_raw))) if (_bank_raw and not (isinstance(_bank_raw, float) and _math.isnan(_bank_raw))) else ""
                         except (ValueError, TypeError):
-                            bank_str = str(_bank_raw) if _bank_raw else ""
+                            bank_str = ""
 
                         # 発走時刻・グレード・バンク
                         meta_parts = []
