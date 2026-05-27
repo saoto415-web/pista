@@ -1612,7 +1612,13 @@ def _save_chariloto_date(venue_code: str, date_str: str) -> int:
 
     for race_no, race_data in day_data.items():
         race_id = _make_race_id(venue_code, date_str, race_no)
-        if already_fetched(race_id):
+        # payouts が既に入っていればスキップ（races に存在するかは問わない）
+        conn_chk = _db.get_connection()
+        c_chk    = _db.get_cursor(conn_chk)
+        c_chk.execute(_db.sql("SELECT 1 FROM payouts WHERE race_id=? LIMIT 1"), (race_id,))
+        has_payouts = c_chk.fetchone() is not None
+        conn_chk.close()
+        if has_payouts:
             continue
 
         results       = race_data.get("results", [])
