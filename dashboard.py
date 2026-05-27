@@ -545,7 +545,7 @@ elif page == "📊 成績を見る":
         _end_str = str(date.today())
 
         df_sig = query_db("""
-            SELECT s.date, s.venue, s.race_no, s.strategy, s.bet_type,
+            SELECT s.date, s.race_id, s.venue, s.race_no, s.strategy, s.bet_type,
                    s.axis_car, s.racer_name, s.odds_at_pick, s.ev_mark,
                    s.is_hit, s.actual_payout,
                    COALESCE(s.start_time, r.start_time, '') AS start_time,
