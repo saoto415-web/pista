@@ -276,6 +276,13 @@ def _save_signals(feat_rows: list, live_strategies: list):
             if not horses:
                 continue
             h = horses[0]
+            st = h.get("start_time", "")
+            # racesテーブルのstart_timeが空なら更新（picks時点でkeirin.jpから取得済み）
+            if st:
+                c.execute(_db.sql("""
+                    UPDATE races SET start_time = ?
+                    WHERE race_id = ? AND (start_time IS NULL OR start_time = '')
+                """), (st, race_id))
             for strategy in live_strategies:
                 for sig in apply_strategy(horses, strategy):
                     ev_mark, _ = _ev_label(
@@ -295,7 +302,7 @@ def _save_signals(feat_rows: list, live_strategies: list):
                         sig.strategy, sig.bet_type,
                         sig.car_no, sig.racer_name, sig.odds,
                         ev_mark, now,
-                        h.get("start_time", ""),
+                        st,
                     ))
         conn.commit()
         conn.close()

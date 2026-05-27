@@ -535,7 +535,7 @@ elif page == "📊 成績を見る":
             SELECT s.date, s.venue, s.race_no, s.strategy, s.bet_type,
                    s.axis_car, s.racer_name, s.odds_at_pick, s.ev_mark,
                    s.is_hit, s.actual_payout,
-                   COALESCE(r.start_time, '') AS start_time,
+                   COALESCE(s.start_time, r.start_time, '') AS start_time,
                    r.grade, r.bank_length
             FROM signals s
             LEFT JOIN races r ON s.race_id = r.race_id
@@ -638,28 +638,34 @@ elif page == "📊 成績を見る":
                         ev_mark    = row.get("ev_mark", "")
                         odds_val   = row.get("odds_at_pick") or 0
 
+                        import math as _math
+                        def _safe_str(v):
+                            if v is None: return ""
+                            if isinstance(v, float) and _math.isnan(v): return ""
+                            return str(v)
+
                         if is_hit_val == 1:
-                            ico = "✅"; txt = f"的中　💰 {payout_val:,}円払戻 (+{payout_val - 100:,}円)"; lc = "#2ecc71"
+                            ico = "✅"
+                            result_html = f'<span style="color:#2ecc71;font-size:1.05em;font-weight:bold">的中！</span>&nbsp;&nbsp;<span style="color:#2ecc71">💰 払戻 {payout_val:,}円&nbsp;（+{payout_val - 100:,}円）</span>'
+                            lc = "#2ecc71"
                         elif is_hit_val == 0:
-                            ico = "❌"; txt = "外れ　（-100円）"; lc = "#e74c3c"
+                            ico = "❌"
+                            result_html = '<span style="color:#e74c3c;font-size:1.05em;font-weight:bold">外れ</span>&nbsp;&nbsp;<span style="color:#e74c3c">−100円</span>'
+                            lc = "#e74c3c"
                         else:
-                            ico = "⏳"; txt = "結果待ち"; lc = "#f39c12"
+                            ico = "⏳"
+                            result_html = '<span style="color:#f39c12">結果待ち</span>'
+                            lc = "#f39c12"
 
                         odds_str  = f"{int(odds_val):,}円" if odds_val > 0 else "未確定"
                         ev_prov   = ev_mark in ("🔶", "retro")
                         ev_str    = ("◎ 買い推奨" if ev_mark == "◎"
                                      else ("🔶 暫定推奨" if ev_prov else "△ 様子見"))
-                        def _safe_str(v):
-                            import math
-                            if v is None: return ""
-                            if isinstance(v, float) and math.isnan(v): return ""
-                            return str(v)
 
                         st_raw    = _safe_str(row.get("start_time"))
                         grade_str = _safe_str(row.get("grade"))
                         _bank_raw = row.get("bank_length")
                         try:
-                            import math as _math
                             bank_str = str(int(float(_bank_raw))) if (_bank_raw and not (isinstance(_bank_raw, float) and _math.isnan(_bank_raw))) else ""
                         except (ValueError, TypeError):
                             bank_str = ""
@@ -673,18 +679,22 @@ elif page == "📊 成績を見る":
                         if bank_str:
                             meta_parts.append(f"バンク{bank_str}m")
                         meta_html = (
-                            f'<span style="color:#aaa;font-size:0.82em">{"　".join(meta_parts)}</span><br>'
+                            f'<span style="color:#888;font-size:0.82em">{"　".join(meta_parts)}</span><br>'
                             if meta_parts else ""
                         )
 
                         st.markdown(
                             f"""
-<div style="border-left:4px solid {lc};padding:8px 14px;margin:5px 0;border-radius:0 6px 6px 0;background:#1a1a2e">
+<div style="border-left:4px solid {lc};padding:10px 16px;margin:6px 0;border-radius:0 8px 8px 0;background:#1a1a2e">
   {meta_html}
-  {ico} &nbsp;<b>{row['venue']} R{row['race_no']}</b>　{bet_name}　軸 <b>{row['axis_car']}車 {row['racer_name']}</b>
-  &nbsp;<span style="color:#aaa;font-size:0.85em">← {row['strategy']}</span><br>
-  <span style="color:{lc}">{txt}</span>
-  &nbsp;&nbsp;<span style="color:#888;font-size:0.82em">オッズ: {odds_str}　{ev_str}</span>
+  <div style="font-size:1.0em;margin-bottom:4px">
+    {ico} &nbsp;<b>{row['venue']} R{row['race_no']}</b>
+    &nbsp;<span style="color:#ccc">{bet_name}</span>
+    &nbsp;軸 <b>{row['axis_car']}車 {row['racer_name']}</b>
+    &nbsp;<span style="color:#666;font-size:0.85em">← {row['strategy']}</span>
+  </div>
+  <div>{result_html}</div>
+  <div style="color:#666;font-size:0.82em;margin-top:4px">オッズ: {odds_str}　{ev_str}</div>
 </div>
 """,
                             unsafe_allow_html=True,
