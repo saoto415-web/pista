@@ -498,9 +498,22 @@ elif page == "📊 成績を見る":
     # AI予想の成績
     # ────────────────────────────────
     with tab_ai:
-        # ボタン行
-        if st.button("📥 今日の結果を取得", key="fetch_and_grade",
-                     help="今日のレース結果を取得して的中/外れを確認します（2〜3分かかります）"):
+        # ページを開いたら自動で答え合わせ（5分キャッシュ）
+        @st.cache_data(ttl=300)
+        def _auto_grade():
+            try:
+                import sys as _sys
+                _sys.path.insert(0, str(BASE_DIR))
+                from main import cmd_grade_signals
+                cmd_grade_signals()
+                return True
+            except Exception:
+                return False
+        _auto_grade()
+
+        # 手動で最新データを取得するボタン
+        if st.button("📥 最新結果を取得・答え合わせ", key="fetch_and_grade",
+                     help="charilotoから直近7日分の結果を取得して的中/外れを確認します（2〜3分かかります）"):
             with st.spinner("レース結果を取得中..."):
                 try:
                     import sys as _sys
@@ -515,7 +528,7 @@ elif page == "📊 成績を見る":
                     st.error(f"エラー: {e}")
                     st.code(_tb.format_exc())
             st.rerun()
-        st.caption("毎朝10時に自動取得・記録。毎晩21時に的中/外れを自動確認します。")
+        st.caption("毎朝10時に自動取得・記録。毎晩23時に的中/外れを自動確認します。")
 
         st.divider()
 
@@ -542,6 +555,24 @@ elif page == "📊 成績を見る":
             WHERE s.date >= ? AND s.date <= ?
             ORDER BY s.date DESC, s.race_no
         """, params=(_start_str, _end_str))
+
+        # 着順データを一括取得（race_id → {1: "3車 山田", 2: "1車 鈴木", ...}）
+        _race_ids = df_sig["race_id"].dropna().unique().tolist() if not df_sig.empty else []
+        _results_map: dict[str, dict[int, str]] = {}
+        if _race_ids:
+            try:
+                _ph = ",".join(["?" for _ in _race_ids])
+                df_res = query_db(
+                    f"SELECT race_id, finish_pos, car_no, racer_name FROM results WHERE race_id IN ({_ph}) AND finish_pos <= 3 ORDER BY race_id, finish_pos",
+                    params=tuple(_race_ids),
+                )
+                for _, rr in df_res.iterrows():
+                    rid = rr["race_id"]
+                    if rid not in _results_map:
+                        _results_map[rid] = {}
+                    _results_map[rid][int(rr["finish_pos"])] = f"{int(rr['car_no'])}車 {rr['racer_name']}"
+            except Exception:
+                pass
 
         if df_sig.empty:
             st.info(f"📭 この期間に記録されたAI予想はありません。")
@@ -683,6 +714,18 @@ elif page == "📊 成績を見る":
                             if meta_parts else ""
                         )
 
+                        # 実際の着順
+                        race_id_val = row.get("race_id", "")
+                        top3 = _results_map.get(race_id_val, {})
+                        if top3:
+                            medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+                            top3_html = "　".join(
+                                f'{medals[p]} {top3[p]}' for p in sorted(top3)
+                            )
+                            result_section = f'<div>{result_html}</div><div style="color:#aaa;font-size:0.85em;margin-top:3px">着順: {top3_html}</div>'
+                        else:
+                            result_section = f'<div>{result_html}</div>'
+
                         st.markdown(
                             f"""
 <div style="border-left:4px solid {lc};padding:10px 16px;margin:6px 0;border-radius:0 8px 8px 0;background:#1a1a2e">
@@ -693,7 +736,7 @@ elif page == "📊 成績を見る":
     &nbsp;軸 <b>{row['axis_car']}車 {row['racer_name']}</b>
     &nbsp;<span style="color:#666;font-size:0.85em">← {row['strategy']}</span>
   </div>
-  <div>{result_html}</div>
+  {result_section}
   <div style="color:#666;font-size:0.82em;margin-top:4px">オッズ: {odds_str}　{ev_str}</div>
 </div>
 """,
