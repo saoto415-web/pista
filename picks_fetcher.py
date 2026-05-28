@@ -5,6 +5,7 @@ picks_fetcher.py  - PISTA 競輪版
 
 from __future__ import annotations
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
 
 from data_fetcher import (
@@ -15,10 +16,21 @@ from feature_engine import build_features
 
 logger = logging.getLogger(__name__)
 
+_FETCH_WORKERS = 4   # 並列リクエスト数（keirin.jp への同時接続数を抑制）
+
+
+def _fetch_one_entry(args: tuple) -> tuple[str, dict | None]:
+    """並列化用ヘルパー: (venue_code, date_str, race_no) → (race_id, entry_data)"""
+    venue_code, date_str, race_no = args
+    race_id    = _make_race_id(venue_code, date_str, race_no)
+    entry_data = fetch_race_entry(venue_code, date_str, race_no)
+    return race_id, entry_data
+
 
 def fetch_upcoming_entries(days_ahead: int = 1) -> tuple[list[dict], dict[str, list[dict]]]:
     """
     今日と直近 days_ahead 日分の出走表を取得。
+    複数レースを並列 HTTP リクエストで取得して高速化。
     戻り値: (entries_rows, lines_by_race)
     """
     init_db()
@@ -33,17 +45,31 @@ def fetch_upcoming_entries(days_ahead: int = 1) -> tuple[list[dict], dict[str, l
             logger.info(f"{target_date}: 開催なし or 取得失敗")
             continue
 
-        logger.info(f"{target_date}: {len(races)}レース発見")
-        for venue_code, date_str, race_no in races:
-            venue_name = VENUE_MAP.get(venue_code, (venue_code,))[0]
-            race_id    = _make_race_id(venue_code, date_str, race_no)
+        logger.info(f"{target_date}: {len(races)}レース発見 → 並列取得開始（workers={_FETCH_WORKERS}）")
 
-            entry_data = fetch_race_entry(venue_code, date_str, race_no)
+        # 並列で全レースの出走表を取得
+        results_map: dict[str, dict] = {}
+        with ThreadPoolExecutor(max_workers=_FETCH_WORKERS) as exe:
+            futures = {exe.submit(_fetch_one_entry, race): race for race in races}
+            for fut in as_completed(futures):
+                try:
+                    race_id, entry_data = fut.result()
+                    if entry_data:
+                        results_map[race_id] = entry_data
+                    else:
+                        vc, ds, rno = futures[fut]
+                        venue_name = VENUE_MAP.get(vc, (vc,))[0]
+                        logger.warning(f"出走表取得失敗: {venue_name} R{rno}")
+                except Exception as exc:
+                    logger.warning(f"出走表取得例外: {exc}")
+
+        # 元の races 順に並べて rows を構築（レース番号順）
+        for venue_code, date_str, race_no in sorted(races, key=lambda x: (x[0], x[2])):
+            race_id    = _make_race_id(venue_code, date_str, race_no)
+            entry_data = results_map.get(race_id)
             if not entry_data:
-                logger.warning(f"出走表取得失敗: {venue_name} R{race_no}")
                 continue
 
-            # 出走表エントリをrows形式に変換
             ri = entry_data["race_info"]
             for e in entry_data["entries"]:
                 row = {

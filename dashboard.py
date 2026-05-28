@@ -5,6 +5,8 @@ dashboard.py - PISTA 競輪AI ダッシュボード
 import os
 import re
 import json
+import time as _time
+import threading
 from pathlib import Path
 from datetime import date, timedelta, datetime, timezone
 
@@ -16,6 +18,36 @@ import streamlit as st
 import db as _db
 
 BASE_DIR = Path(__file__).parent
+
+# picks バックグラウンド実行フラグ（ファイルが存在する間は更新中）
+_PICKS_RUNNING_FLAG = BASE_DIR / "logs" / "picks_running.flag"
+_PICKS_RUNNING_FLAG.parent.mkdir(exist_ok=True)
+_PICKS_MAX_AGE_SEC = 600   # 10分以上古いフラグは無効（スタックした場合の保護）
+
+
+def _picks_is_running() -> bool:
+    """バックグラウンドpicksが実行中かチェック（古いフラグは自動削除）"""
+    if not _PICKS_RUNNING_FLAG.exists():
+        return False
+    age = _time.time() - _PICKS_RUNNING_FLAG.stat().st_mtime
+    if age > _PICKS_MAX_AGE_SEC:
+        _PICKS_RUNNING_FLAG.unlink(missing_ok=True)
+        return False
+    return True
+
+
+def _run_picks_bg():
+    """バックグラウンドスレッドで picks を実行"""
+    try:
+        import sys
+        sys.path.insert(0, str(BASE_DIR))
+        from main import cmd_picks
+        cmd_picks()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"バックグラウンドpicks失敗: {e}")
+    finally:
+        _PICKS_RUNNING_FLAG.unlink(missing_ok=True)
 
 # Streamlit Secrets → 環境変数に反映
 if "DATABASE_URL" in st.secrets and not os.environ.get("DATABASE_URL"):
@@ -243,20 +275,23 @@ if page == "🏠 今日の買い目":
         st.caption(now_jst.strftime("%Y年%m月%d日"))
     with col_btn:
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🔄 最新予想を取得", type="primary", use_container_width=True):
-            with st.spinner("keirin.jp から出走表を取得中...（1〜2分）"):
-                try:
-                    import sys as _sys
-                    _sys.path.insert(0, str(BASE_DIR))
-                    from main import cmd_picks
-                    cmd_picks()
-                    st.cache_data.clear()
-                    st.success("✅ 取得完了！")
-                except Exception as e:
-                    import traceback
-                    st.error(f"取得エラー: {e}")
-                    st.code(traceback.format_exc())
-            st.rerun()
+        _updating = _picks_is_running()
+        if _updating:
+            st.button("⏳ 取得中...", type="primary", use_container_width=True, disabled=True)
+        else:
+            if st.button("🔄 最新予想を取得", type="primary", use_container_width=True):
+                if not _picks_is_running():
+                    _PICKS_RUNNING_FLAG.touch()
+                    threading.Thread(target=_run_picks_bg, daemon=True).start()
+                st.rerun()
+
+    # 更新中バナー＆自動リロード
+    _updating = _picks_is_running()
+    if _updating:
+        st.info("🔄 keirin.jp から出走表を取得中です... 完了したら自動的に表示されます（数分かかります）")
+        _time.sleep(5)
+        st.cache_data.clear()
+        st.rerun()
 
     # picks テキスト読み込み
     picks_text = None
