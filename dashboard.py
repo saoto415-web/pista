@@ -513,16 +513,16 @@ elif page == "📊 成績を見る":
 
         # 手動で最新データを取得するボタン
         if st.button("📥 最新結果を取得・答え合わせ", key="fetch_and_grade",
-                     help="charilotoから直近7日分の結果を取得して的中/外れを確認します（2〜3分かかります）"):
+                     help="結果待ちのシグナルの会場・日付だけcharilotoから取得して的中/外れを確認します"):
             with st.spinner("レース結果を取得中..."):
                 try:
                     import sys as _sys
                     _sys.path.insert(0, str(BASE_DIR))
-                    from main import cmd_fetch, cmd_grade_signals
-                    cmd_fetch(years=0, specific_date=None)
+                    from main import cmd_fetch_for_pending_signals, cmd_grade_signals
+                    n_saved = cmd_fetch_for_pending_signals()
                     cmd_grade_signals()
                     st.cache_data.clear()
-                    st.success("✅ 確認完了！")
+                    st.success(f"✅ 完了！ {n_saved}レース分の結果を取得しました")
                 except Exception as e:
                     import traceback as _tb
                     st.error(f"エラー: {e}")

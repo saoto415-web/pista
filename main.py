@@ -363,6 +363,53 @@ def cmd_grade_signals():
     logger.info(f"signals 照合完了: {updated}件更新")
 
 
+def cmd_fetch_for_pending_signals() -> int:
+    """
+    is_hit が NULL のシグナルが対象とする会場・日付だけを chariloto から取得する。
+    全会場スキャンを避けるので高速（ダッシュボードの「最新結果を取得」から呼ぶ）。
+    返り値: 保存したレース数
+    """
+    import time as _time
+    import db as _db
+    from data_fetcher import _save_chariloto_date, init_db
+
+    init_db()
+
+    conn = _db.get_connection()
+    c    = _db.get_cursor(conn)
+    c.execute(_db.sql(
+        "SELECT DISTINCT race_id FROM signals WHERE is_hit IS NULL"
+    ))
+    race_ids = [dict(r)["race_id"] for r in c.fetchall()]
+    conn.close()
+
+    if not race_ids:
+        logger.info("未照合シグナルなし → chariloto 取得スキップ")
+        return 0
+
+    # race_id から (venue_code, date_str) を抽出
+    # race_id 形式: YYYYMMDD + venue_code(2桁) + race_no(2桁) = 計12文字
+    venue_dates: set[tuple[str, str]] = set()
+    for rid in race_ids:
+        if len(rid) == 12:
+            date_str   = rid[:8]   # YYYYMMDD
+            venue_code = rid[8:10] # 会場コード
+            venue_dates.add((venue_code, date_str))
+
+    logger.info(f"未照合シグナル対象: {len(race_ids)}件 / {len(venue_dates)}会場×日")
+
+    total_saved = 0
+    for venue_code, date_str in sorted(venue_dates):
+        n = _save_chariloto_date(venue_code, date_str)
+        total_saved += n
+        if n:
+            logger.info(f"  保存: venue={venue_code} date={date_str} → {n}レース")
+        _time.sleep(1.0)
+
+    logger.info(f"chariloto 取得完了（対象絞り込み）: 計{total_saved}レース保存")
+    return total_saved
+
+
 def cmd_retro(start_date: str, end_date: str):
     """指定期間の過去データに対してシミュレーション予想を実行し、結果照合まで行う。
     start_date / end_date: YYYY-MM-DD 形式
@@ -509,7 +556,8 @@ def cmd_retro(start_date: str, end_date: str):
 
 def main():
     parser = argparse.ArgumentParser(description="PISTA 競輪AI予想システム")
-    parser.add_argument("--fetch",    action="store_true", help="データ取得")
+    parser.add_argument("--fetch",    action="store_true", help="データ取得（全期間スキャン）")
+    parser.add_argument("--grade",    action="store_true", help="結果取得＆照合（未照合シグナルの会場のみ）")
     parser.add_argument("--optimize", action="store_true", help="バックテスト＆最適化（ルールベース）")
     parser.add_argument("--ml",       action="store_true", help="XGBoostによるML最適化")
     parser.add_argument("--picks",    action="store_true", help="今日の推奨車券")
@@ -522,7 +570,7 @@ def main():
     parser.add_argument("--end",      type=str, default=None, help="レトロ終了日 YYYY-MM-DD")
     args = parser.parse_args()
 
-    if not any([args.fetch, args.optimize, args.ml, args.picks, args.retro]):
+    if not any([args.fetch, args.grade, args.optimize, args.ml, args.picks, args.retro]):
         parser.print_help()
         return
 
@@ -531,6 +579,13 @@ def main():
     if args.fetch:
         cmd_fetch(years=args.years, specific_date=args.date, days=args.days)
         cmd_grade_signals()   # fetch後にシグナル結果を自動照合
+
+    if args.grade:
+        # 結果待ちシグナルの会場・日付だけ chariloto から取得して照合
+        logger.info("=== 結果取得＆照合（対象絞り込み）開始 ===")
+        cmd_fetch_for_pending_signals()
+        cmd_grade_signals()
+        logger.info("=== 結果取得＆照合 完了 ===")
 
     if args.optimize:
         live_strategies = cmd_optimize(n_trials=args.trials)

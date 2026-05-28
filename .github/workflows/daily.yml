@@ -9,12 +9,11 @@ on:
 
 jobs:
   fetch:
-    name: データ取得 (--fetch)
+    name: データ取得 (--fetch, 朝スキャン)
     runs-on: ubuntu-latest
     if: >
       github.event_name == 'workflow_dispatch' ||
-      github.event.schedule == '30 21 * * *' ||
-      github.event.schedule == '0 14 * * *'
+      github.event.schedule == '30 21 * * *'
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
@@ -24,6 +23,22 @@ jobs:
           python-version: '3.11'
       - run: pip install -r requirements.txt
       - run: python main.py --fetch --days 7   # 直近7日分の結果を取得・照合
+
+  grade:
+    name: 結果取得＆照合 (--grade, 夕方)
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.schedule == '0 14 * * *'
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - run: python main.py --grade   # 結果待ちシグナルの会場だけ取得して照合
 
   picks:
     name: 推奨車券生成 (--picks)
