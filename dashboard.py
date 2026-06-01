@@ -21,19 +21,26 @@ BASE_DIR = Path(__file__).parent
 
 # picks バックグラウンド実行フラグ（ファイルが存在する間は更新中）
 _PICKS_RUNNING_FLAG = BASE_DIR / "logs" / "picks_running.flag"
-_PICKS_RUNNING_FLAG.parent.mkdir(exist_ok=True)
 _PICKS_MAX_AGE_SEC = 600   # 10分以上古いフラグは無効（スタックした場合の保護）
+
+try:
+    _PICKS_RUNNING_FLAG.parent.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass  # 書き込み不可環境でもクラッシュしない
 
 
 def _picks_is_running() -> bool:
     """バックグラウンドpicksが実行中かチェック（古いフラグは自動削除）"""
-    if not _PICKS_RUNNING_FLAG.exists():
+    try:
+        if not _PICKS_RUNNING_FLAG.exists():
+            return False
+        age = _time.time() - _PICKS_RUNNING_FLAG.stat().st_mtime
+        if age > _PICKS_MAX_AGE_SEC:
+            _PICKS_RUNNING_FLAG.unlink(missing_ok=True)
+            return False
+        return True
+    except Exception:
         return False
-    age = _time.time() - _PICKS_RUNNING_FLAG.stat().st_mtime
-    if age > _PICKS_MAX_AGE_SEC:
-        _PICKS_RUNNING_FLAG.unlink(missing_ok=True)
-        return False
-    return True
 
 
 def _run_picks_bg():
@@ -47,7 +54,10 @@ def _run_picks_bg():
         import logging
         logging.getLogger(__name__).error(f"バックグラウンドpicks失敗: {e}")
     finally:
-        _PICKS_RUNNING_FLAG.unlink(missing_ok=True)
+        try:
+            _PICKS_RUNNING_FLAG.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 # Streamlit Secrets → 環境変数に反映
 if "DATABASE_URL" in st.secrets and not os.environ.get("DATABASE_URL"):
