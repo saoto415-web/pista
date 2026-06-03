@@ -734,18 +734,30 @@ elif page == "📊 成績を見る":
 
                 with st.expander(lbl, expanded=is_today):
                     for _, row in df_day.iterrows():
-                        is_hit_val = row.get("is_hit")
-                        payout_val = int(row.get("actual_payout") or 0)
-                        bet_raw    = str(row.get("bet_type", "")).upper()
-                        bet_name   = "2車複" if "NISHAFUKU" in bet_raw else "ワイド"
-                        ev_mark    = row.get("ev_mark", "")
-                        odds_val   = row.get("odds_at_pick") or 0
-
                         import math as _math
+
+                        def _safe_int(v, default=0):
+                            """None/NaN を安全に int 変換"""
+                            if v is None:
+                                return default
+                            if isinstance(v, float) and _math.isnan(v):
+                                return default
+                            try:
+                                return int(v)
+                            except (ValueError, TypeError):
+                                return default
+
                         def _safe_str(v):
                             if v is None: return ""
                             if isinstance(v, float) and _math.isnan(v): return ""
                             return str(v)
+
+                        is_hit_val = row.get("is_hit")
+                        payout_val = _safe_int(row.get("actual_payout"))
+                        bet_raw    = str(row.get("bet_type", "")).upper()
+                        bet_name   = "2車複" if "NISHAFUKU" in bet_raw else "ワイド"
+                        ev_mark    = row.get("ev_mark", "")
+                        odds_val   = row.get("odds_at_pick") or 0
 
                         if is_hit_val == 1:
                             ico = "✅"
