@@ -67,6 +67,24 @@ if "DATABASE_URL" in st.secrets and not os.environ.get("DATABASE_URL"):
 st.set_page_config(page_title="PISTA 競輪AI", page_icon="🚴", layout="wide")
 
 # ──────────────────────────────────────────────
+# DB初期化（サーバー起動時に1回だけ実行）
+# ──────────────────────────────────────────────
+
+@st.cache_resource
+def _ensure_db():
+    """Supabase にテーブルが存在することを保証する（サーバー起動時1回だけ）"""
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(BASE_DIR))
+        from data_fetcher import init_db
+        init_db()
+    except Exception as _e:
+        import logging as _lg
+        _lg.getLogger(__name__).warning(f"init_db スキップ: {_e}")
+
+_ensure_db()
+
+# ──────────────────────────────────────────────
 # ユーティリティ
 # ──────────────────────────────────────────────
 
@@ -85,6 +103,9 @@ def query_db(sql: str, params: tuple = ()) -> pd.DataFrame:
             return pd.DataFrame([dict(r) for r in rows])
         else:
             return pd.read_sql_query(sql, conn, params=params if params else None)
+    except Exception as _qe:
+        conn.rollback()   # PostgreSQLのトランザクションを回復
+        raise _qe
     finally:
         conn.close()
 
@@ -593,7 +614,7 @@ elif page == "📊 成績を見る":
             SELECT s.date, s.race_id, s.venue, s.race_no, s.strategy, s.bet_type,
                    s.axis_car, s.racer_name, s.odds_at_pick, s.ev_mark,
                    s.is_hit, s.actual_payout,
-                   COALESCE(s.start_time, r.start_time, '') AS start_time,
+                   COALESCE(r.start_time, '') AS start_time,
                    r.grade, r.bank_length
             FROM signals s
             LEFT JOIN races r ON s.race_id = r.race_id
@@ -886,11 +907,15 @@ elif page == "📊 成績を見る":
                 st.plotly_chart(fig_b, use_container_width=True)
 
             st.divider()
+            import math as _math_b
             df_b["is_hit"] = df_b["is_hit"].map(
                 lambda v: "✅ 的中" if v == 1 else ("❌ 外れ" if v == 0 else "⏳ 未確定")
             )
+            df_b["payout"] = df_b["payout"].apply(
+                lambda v: f"{int(v):,}円" if v is not None and not (isinstance(v, float) and _math_b.isnan(v)) else "-"
+            )
             df_b["profit"] = df_b["profit"].apply(
-                lambda v: f"{int(v):+,}円" if v is not None and str(v) != "None" else "-"
+                lambda v: f"{int(v):+,}円" if v is not None and not (isinstance(v, float) and _math_b.isnan(v)) else "-"
             )
             df_b.columns = ["日付", "会場", "R", "賭種", "軸", "金額", "結果", "払戻", "収支", "メモ"]
             st.dataframe(df_b, hide_index=True, use_container_width=True)
