@@ -615,14 +615,17 @@ elif page == "📊 成績を見る":
                 SELECT s.date, s.race_id, s.venue, s.race_no, s.strategy, s.bet_type,
                        s.axis_car, s.racer_name, s.odds_at_pick, s.ev_mark,
                        s.is_hit, s.actual_payout,
-                       COALESCE(s.n_combos, 1) AS n_combos,
                        COALESCE(r.start_time, '') AS start_time,
-                       r.grade, r.bank_length
+                       r.grade, r.bank_length, r.num_racers
                 FROM signals s
                 LEFT JOIN races r ON s.race_id = r.race_id
                 WHERE s.date >= ? AND s.date <= ?
                 ORDER BY s.date DESC, s.race_no
             """, params=(_start_str, _end_str))
+            # n_combos: signals カラムが未追加の環境では races.num_racers - 1 で代替
+            if not df_sig.empty:
+                if "n_combos" not in df_sig.columns:
+                    df_sig["n_combos"] = (df_sig["num_racers"].fillna(8) - 1).clip(lower=1).astype(int)
         except Exception as _sig_err:
             import traceback as _tb
             st.error(f"シグナル取得エラー: {_sig_err}")
