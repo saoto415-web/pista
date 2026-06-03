@@ -283,6 +283,7 @@ def _save_signals(feat_rows: list, live_strategies: list):
                     UPDATE races SET start_time = ?
                     WHERE race_id = ? AND (start_time IS NULL OR start_time = '')
                 """), (st, race_id))
+            n_cars = len(horses)   # 出走頭数
             for strategy in live_strategies:
                 for sig in apply_strategy(horses, strategy):
                     ev_mark, _ = _ev_label(
@@ -290,19 +291,20 @@ def _save_signals(feat_rows: list, live_strategies: list):
                         hit_rate_map.get(sig.strategy),
                         avg_payout=avg_payout_map.get(sig.strategy),
                     )
+                    n_combos = max(n_cars - 1, 1)  # 軸1車流し = 他全頭が相手
                     c.execute(_db.sql("""
                         INSERT OR IGNORE INTO signals
                         (date, race_id, venue, race_no, strategy, bet_type,
                          axis_car, racer_name, odds_at_pick, ev_mark, created_at,
-                         start_time)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                         start_time, n_combos)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """), (
                         h.get("date", ""), race_id,
                         h.get("venue", ""), h.get("race_no", 0),
                         sig.strategy, sig.bet_type,
                         sig.car_no, sig.racer_name, sig.odds,
                         ev_mark, now,
-                        st,
+                        st, n_combos,
                     ))
         conn.commit()
         conn.close()
@@ -353,13 +355,14 @@ def cmd_grade_signals():
               AND bet_type = ?
               AND (car_no1 = ? OR car_no2 = ?)
         """), (race_id, bet_type, axis, axis))
-        payouts = [dict(r) for r in c.fetchall()]
+        hit_payouts = [dict(r) for r in c.fetchall()]
 
-        if payouts:
-            payout = payouts[0]["payout"]
+        if hit_payouts:
+            # ワイドは複数組み合わせが同時に当たるため合算、2車複は1件のみ
+            total_payout = sum(p["payout"] for p in hit_payouts)
             c.execute(_db.sql(
                 "UPDATE signals SET is_hit=1, actual_payout=? WHERE id=?"
-            ), (payout, row["id"]))
+            ), (total_payout, row["id"]))
         else:
             c.execute(_db.sql(
                 "UPDATE signals SET is_hit=0, actual_payout=0 WHERE id=?"

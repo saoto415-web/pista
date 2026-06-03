@@ -615,6 +615,7 @@ elif page == "📊 成績を見る":
                 SELECT s.date, s.race_id, s.venue, s.race_no, s.strategy, s.bet_type,
                        s.axis_car, s.racer_name, s.odds_at_pick, s.ev_mark,
                        s.is_hit, s.actual_payout,
+                       COALESCE(s.n_combos, 1) AS n_combos,
                        COALESCE(r.start_time, '') AS start_time,
                        r.grade, r.bank_length
                 FROM signals s
@@ -659,11 +660,13 @@ elif page == "📊 成績を見る":
                 hits       = int(df_graded["is_hit"].sum())
                 hit_pct    = hits / total * 100 if total else 0
                 total_paid = int(df_graded["actual_payout"].sum())
-                total_bet  = total * 100
+                # 実コスト: 軸1車流し = n_combos × 100円（n_combos未取得分は1とみなす）
+                df_graded["n_combos"] = df_graded["n_combos"].fillna(1).astype(int)
+                total_bet  = int((df_graded["n_combos"] * 100).sum())
                 net        = total_paid - total_bet
                 roi        = net / total_bet * 100 if total_bet else 0
 
-                st.caption(f"集計期間: {_start_str} 〜 {_end_str}　（結果確認済み {total}件）")
+                st.caption(f"集計期間: {_start_str} 〜 {_end_str}　（結果確認済み {total}件 / 実投資 {total_bet:,}円）")
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("的中数 / 予想数", f"{hits} / {total} 件")
                 c2.metric("的中率",          f"{hit_pct:.1f}%")
@@ -674,25 +677,25 @@ elif page == "📊 成績を見る":
 
                 st.divider()
 
-                # 戦略別
+                # 戦略別（実コスト = n_combos × 100）
                 grp = df_graded.groupby("strategy").agg(
                     予想数=("is_hit", "count"),
                     的中数=("is_hit", "sum"),
                     払戻合計=("actual_payout", "sum"),
+                    投資額=("n_combos", lambda x: int((x * 100).sum())),
                 ).reset_index()
                 grp["的中率"] = (grp["的中数"] / grp["予想数"] * 100).round(1).astype(str) + "%"
-                grp["投資額"] = grp["予想数"] * 100
                 grp["収益率"] = ((grp["払戻合計"] - grp["投資額"]) / grp["投資額"] * 100)\
                                 .round(1).astype(str) + "%"
                 grp = grp.rename(columns={"strategy": "戦略"})
                 st.dataframe(
-                    grp[["戦略", "予想数", "的中数", "的中率", "払戻合計", "収益率"]],
+                    grp[["戦略", "予想数", "的中数", "的中率", "投資額", "払戻合計", "収益率"]],
                     hide_index=True, use_container_width=True,
                 )
 
-                # 損益チャート
+                # 損益チャート（実コスト = n_combos × 100）
                 df_s = df_graded.sort_values("date").reset_index(drop=True)
-                df_s["損益"]     = df_s["actual_payout"] - 100
+                df_s["損益"]     = df_s["actual_payout"] - df_s["n_combos"] * 100
                 df_s["累積損益"] = df_s["損益"].cumsum()
                 fig_cum = px.line(
                     df_s, y="累積損益",
@@ -758,14 +761,22 @@ elif page == "📊 成績を見る":
                         bet_name   = "2車複" if "NISHAFUKU" in bet_raw else "ワイド"
                         ev_mark    = row.get("ev_mark", "")
                         odds_val   = row.get("odds_at_pick") or 0
+                        n_combos_val = _safe_int(row.get("n_combos"), default=1)
+                        actual_cost  = n_combos_val * 100   # 実際の投資額
 
                         if is_hit_val == 1:
                             ico = "✅"
-                            result_html = f'<span style="color:#2ecc71;font-size:1.05em;font-weight:bold">的中！</span>&nbsp;&nbsp;<span style="color:#2ecc71">💰 払戻 {payout_val:,}円&nbsp;（+{payout_val - 100:,}円）</span>'
+                            profit_val = payout_val - actual_cost
+                            profit_str = f"+{profit_val:,}" if profit_val >= 0 else f"{profit_val:,}"
+                            result_html = (
+                                f'<span style="color:#2ecc71;font-size:1.05em;font-weight:bold">的中！</span>'
+                                f'&nbsp;&nbsp;<span style="color:#2ecc71">💰 払戻 {payout_val:,}円'
+                                f'&nbsp;（{profit_str}円）</span>'
+                            )
                             lc = "#2ecc71"
                         elif is_hit_val == 0:
                             ico = "❌"
-                            result_html = '<span style="color:#e74c3c;font-size:1.05em;font-weight:bold">外れ</span>&nbsp;&nbsp;<span style="color:#e74c3c">−100円</span>'
+                            result_html = f'<span style="color:#e74c3c;font-size:1.05em;font-weight:bold">外れ</span>&nbsp;&nbsp;<span style="color:#e74c3c">−{actual_cost:,}円</span>'
                             lc = "#e74c3c"
                         else:
                             ico = "⏳"
@@ -776,6 +787,7 @@ elif page == "📊 成績を見る":
                         ev_prov   = ev_mark in ("🔶", "retro")
                         ev_str    = ("◎ 買い推奨" if ev_mark == "◎"
                                      else ("🔶 暫定推奨" if ev_prov else "△ 様子見"))
+                        buy_str   = f"軸1車流し {n_combos_val}点・投資 {actual_cost:,}円"
 
                         st_raw    = _safe_str(row.get("start_time"))
                         grade_str = _safe_str(row.get("grade"))
@@ -821,7 +833,7 @@ elif page == "📊 成績を見る":
     &nbsp;<span style="color:#666;font-size:0.85em">← {row['strategy']}</span>
   </div>
   {result_section}
-  <div style="color:#666;font-size:0.82em;margin-top:4px">オッズ: {odds_str}　{ev_str}</div>
+  <div style="color:#666;font-size:0.82em;margin-top:4px">オッズ: {odds_str}　{ev_str}　<span style="color:#555">🎯 {buy_str}</span></div>
 </div>
 """,
                             unsafe_allow_html=True,
