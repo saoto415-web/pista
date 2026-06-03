@@ -115,6 +115,45 @@ _BANK_BY_NAME: dict[str, int] = {
     name: bank for name, bank in VENUE_MAP.values()
 }
 
+# keirin.jp の naibuKeirinCd → chariloto.com の venue コード変換マップ
+# ※ コード11〜28 は両者一致。29以降は完全に別体系。
+# ※ race_id には keirin.jp コードを使い続け、URL だけ chariloto コードを使う。
+KEIRIN_TO_CHARILOTO: dict[str, str] = {
+    "11": "11",  # 函館
+    "12": "12",  # 青森
+    "13": "13",  # いわき平
+    "21": "21",  # 弥彦
+    "22": "22",  # 前橋
+    "23": "23",  # 取手
+    "24": "24",  # 宇都宮
+    "25": "25",  # 大宮
+    "26": "26",  # 西武園
+    "27": "27",  # 京王閣
+    "28": "28",  # 立川
+    "29": "31",  # 松戸
+    "31": "32",  # 千葉
+    "34": "38",  # 静岡
+    "35": "42",  # 名古屋
+    "36": "43",  # 岐阜
+    "42": "54",  # 向日町
+    "43": "55",  # 和歌山
+    "44": "56",  # 岸和田
+    "45": "73",  # 小松島
+    "46": "61",  # 玉野
+    "47": "47",  # 松阪
+    "51": "62",  # 広島
+    "52": "63",  # 防府
+    "53": "53",  # 奈良
+    "54": "71",  # 高松
+    "57": "81",  # 小倉
+    "61": "84",  # 武雄
+    "62": "85",  # 佐世保
+    "75": "75",  # 松山
+    "77": "74",  # 高知
+    "86": "86",  # 別府
+    "87": "87",  # 熊本
+}
+
 # sInfo.sstyle (int) → 脚質文字
 STYLE_MAP = {0: "逃", 1: "捲", 2: "差", 3: "追", 4: "自"}
 
@@ -1199,6 +1238,7 @@ def _fetch_and_save(venue_code: str, date_str: str, race_no: int) -> bool:
 def _fetch_chariloto_day(venue_code: str, date_str: str) -> dict:
     """
     chariloto.com から指定会場・日付の全レース結果を取得。
+    venue_code は keirin.jp の naibuKeirinCd。chariloto URL には KEIRIN_TO_CHARILOTO で変換したコードを使う。
     キャッシュ済みの場合はキャッシュを返す。
     返り値: {race_no: {"results": [...], "narabi": [...], "payouts": [...], "class_by_car": {...}, "age_by_car": {...}}}
     """
@@ -1206,8 +1246,10 @@ def _fetch_chariloto_day(venue_code: str, date_str: str) -> dict:
     if cache_key in _chariloto_day_cache:
         return _chariloto_day_cache[cache_key]
 
+    # keirin.jp コード → chariloto コードに変換（URL用）
+    chariloto_code = KEIRIN_TO_CHARILOTO.get(venue_code, venue_code)
     date_fmt = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
-    url = f"{CHARILOTO_URL}/keirin/results/{venue_code}/{date_fmt}"
+    url = f"{CHARILOTO_URL}/keirin/results/{chariloto_code}/{date_fmt}"
     resp = _get(url)
     if not resp:
         logger.debug(f"chariloto 取得失敗: {url}")
@@ -1218,7 +1260,7 @@ def _fetch_chariloto_day(venue_code: str, date_str: str) -> dict:
     tables = soup.select("table")
     result = _parse_chariloto_tables(tables, venue_code, date_str)
     _chariloto_day_cache[cache_key] = result
-    logger.debug(f"chariloto: {venue_code}/{date_str} → {len(result)}レース分")
+    logger.debug(f"chariloto: {venue_code}(→{chariloto_code})/{date_str} → {len(result)}レース分")
     return result
 
 
@@ -1583,9 +1625,11 @@ def load_payouts_from_db(days: int = 730) -> dict[str, list[dict]]:
 def _fetch_chariloto_venue_dates(venue_code: str) -> list[str]:
     """
     chariloto の会場ページから過去の開催日一覧を取得。
+    venue_code は keirin.jp の naibuKeirinCd（内部は KEIRIN_TO_CHARILOTO で変換）。
     返り値: YYYYMMDD 形式のリスト（新しい順）
     """
-    url  = f"{CHARILOTO_URL}/keirin/results/{venue_code}"
+    chariloto_code = KEIRIN_TO_CHARILOTO.get(venue_code, venue_code)
+    url  = f"{CHARILOTO_URL}/keirin/results/{chariloto_code}"
     resp = _get(url)
     if not resp:
         return []

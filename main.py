@@ -330,7 +330,23 @@ def cmd_grade_signals():
         bet_type = row["bet_type"].lower()
         axis     = row["axis_car"]
 
-        # payouts テーブルで照合
+        # results テーブルで着順を確認（レース結果が取得済みか）
+        c.execute(_db.sql(
+            "SELECT COUNT(*) AS cnt FROM results WHERE race_id = ? AND finish_pos IS NOT NULL"
+        ), (race_id,))
+        result_row = c.fetchone()
+        if not result_row or dict(result_row)["cnt"] == 0:
+            continue  # 結果未取得はスキップ（結果待ちのまま）
+
+        # payouts テーブルにそのレースのデータが存在するか確認
+        c.execute(_db.sql(
+            "SELECT COUNT(*) AS cnt FROM payouts WHERE race_id = ?"
+        ), (race_id,))
+        payout_race_row = c.fetchone()
+        if not payout_race_row or dict(payout_race_row)["cnt"] == 0:
+            continue  # payouts 未取得はスキップ（chariloto fetch が未完了）
+
+        # 自分の賭けた組み合わせが払戻にあるか照合
         c.execute(_db.sql("""
             SELECT payout FROM payouts
             WHERE race_id = ?
@@ -338,14 +354,6 @@ def cmd_grade_signals():
               AND (car_no1 = ? OR car_no2 = ?)
         """), (race_id, bet_type, axis, axis))
         payouts = [dict(r) for r in c.fetchall()]
-
-        # results テーブルで着順を確認（レース結果が取得済みか）
-        c.execute(_db.sql(
-            "SELECT COUNT(*) AS cnt FROM results WHERE race_id = ? AND finish_pos IS NOT NULL"
-        ), (race_id,))
-        result_row = c.fetchone()
-        if not result_row or dict(result_row)["cnt"] == 0:
-            continue  # 結果未取得はスキップ
 
         if payouts:
             payout = payouts[0]["payout"]
