@@ -713,124 +713,86 @@ elif page == "📊 成績を見る":
                 )
                 st.plotly_chart(fig_cum, use_container_width=True)
 
-            # 日別詳細
-            st.divider()
-            st.subheader("日別の記録")
+            # 詳細カード共通ヘルパー
+            import math as _math
 
-            today_iso = date.today().isoformat()
-            sig_dates = sorted(df_sig["date"].unique(), reverse=True)
+            def _safe_int(v, default=0):
+                if v is None: return default
+                if isinstance(v, float) and _math.isnan(v): return default
+                try: return int(v)
+                except (ValueError, TypeError): return default
 
-            for sig_date in sig_dates:
-                df_day  = df_sig[df_sig["date"] == sig_date].copy()
-                n_hit   = int((df_day["is_hit"] == 1).sum())
-                n_miss  = int((df_day["is_hit"] == 0).sum())
-                n_tbd   = int(df_day["is_hit"].isna().sum())
-                day_pay = int(df_day["actual_payout"].fillna(0).sum())
+            def _safe_str(v):
+                if v is None: return ""
+                if isinstance(v, float) and _math.isnan(v): return ""
+                return str(v)
 
-                parts = []
-                if n_hit:  parts.append(f"✅ {n_hit}的中")
-                if n_miss: parts.append(f"❌ {n_miss}外れ")
-                if n_tbd:  parts.append(f"⏳ {n_tbd}未確定")
-                summary = "　".join(parts)
-                if n_hit:  summary += f"　💰 {day_pay:,}円払戻"
+            def _render_signal_card(row):
+                """シグナル1件のカードを描画する"""
+                is_hit_val   = row.get("is_hit")
+                payout_val   = _safe_int(row.get("actual_payout"))
+                bet_raw      = str(row.get("bet_type", "")).upper()
+                bet_name     = "2車複" if "NISHAFUKU" in bet_raw else "ワイド"
+                ev_mark      = row.get("ev_mark", "")
+                odds_val     = row.get("odds_at_pick") or 0
+                n_combos_val = _safe_int(row.get("n_combos"), default=1)
+                actual_cost  = n_combos_val * 100
 
-                is_today = sig_date == today_iso
-                icon     = "🔴" if is_today else "📅"
-                lbl      = f"{icon} {sig_date}　{summary}"
+                if is_hit_val == 1:
+                    ico = "✅"; lc = "#2ecc71"
+                    profit_val = payout_val - actual_cost
+                    profit_str = f"+{profit_val:,}" if profit_val >= 0 else f"{profit_val:,}"
+                    result_html = (
+                        f'<span style="color:#2ecc71;font-size:1.05em;font-weight:bold">的中！</span>'
+                        f'&nbsp;&nbsp;<span style="color:#2ecc71">💰 払戻 {payout_val:,}円'
+                        f'&nbsp;（{profit_str}円）</span>'
+                    )
+                elif is_hit_val == 0:
+                    ico = "❌"; lc = "#e74c3c"
+                    result_html = f'<span style="color:#e74c3c;font-size:1.05em;font-weight:bold">外れ</span>&nbsp;&nbsp;<span style="color:#e74c3c">−{actual_cost:,}円</span>'
+                else:
+                    ico = "⏳"; lc = "#f39c12"
+                    result_html = '<span style="color:#f39c12">結果待ち</span>'
 
-                with st.expander(lbl, expanded=is_today):
-                    for _, row in df_day.iterrows():
-                        import math as _math
+                odds_str  = f"{int(odds_val):,}円" if odds_val > 0 else "未確定"
+                ev_prov   = ev_mark in ("🔶", "retro")
+                ev_str    = "◎ 買い推奨" if ev_mark == "◎" else ("🔶 暫定推奨" if ev_prov else "△ 様子見")
+                buy_str   = f"軸1車流し {n_combos_val}点・投資 {actual_cost:,}円"
 
-                        def _safe_int(v, default=0):
-                            """None/NaN を安全に int 変換"""
-                            if v is None:
-                                return default
-                            if isinstance(v, float) and _math.isnan(v):
-                                return default
-                            try:
-                                return int(v)
-                            except (ValueError, TypeError):
-                                return default
+                st_raw    = _safe_str(row.get("start_time"))
+                grade_str = _safe_str(row.get("grade"))
+                _bank_raw = row.get("bank_length")
+                try:
+                    bank_str = str(int(float(_bank_raw))) if (_bank_raw and not (isinstance(_bank_raw, float) and _math.isnan(_bank_raw))) else ""
+                except (ValueError, TypeError):
+                    bank_str = ""
 
-                        def _safe_str(v):
-                            if v is None: return ""
-                            if isinstance(v, float) and _math.isnan(v): return ""
-                            return str(v)
+                meta_parts = []
+                if st_raw:    meta_parts.append(f"🕐 {st_raw}")
+                if grade_str: meta_parts.append(grade_str)
+                if bank_str:  meta_parts.append(f"バンク{bank_str}m")
+                meta_html = (
+                    f'<span style="color:#888;font-size:0.82em">{"　".join(meta_parts)}</span><br>'
+                    if meta_parts else ""
+                )
 
-                        is_hit_val = row.get("is_hit")
-                        payout_val = _safe_int(row.get("actual_payout"))
-                        bet_raw    = str(row.get("bet_type", "")).upper()
-                        bet_name   = "2車複" if "NISHAFUKU" in bet_raw else "ワイド"
-                        ev_mark    = row.get("ev_mark", "")
-                        odds_val   = row.get("odds_at_pick") or 0
-                        n_combos_val = _safe_int(row.get("n_combos"), default=1)
-                        actual_cost  = n_combos_val * 100   # 実際の投資額
+                race_id_val = row.get("race_id", "")
+                top3 = _results_map.get(race_id_val, {})
+                if top3:
+                    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+                    top3_html = "　".join(f'{medals[p]} {top3[p]}' for p in sorted(top3))
+                    result_section = f'<div>{result_html}</div><div style="color:#aaa;font-size:0.85em;margin-top:3px">着順: {top3_html}</div>'
+                else:
+                    result_section = f'<div>{result_html}</div>'
 
-                        if is_hit_val == 1:
-                            ico = "✅"
-                            profit_val = payout_val - actual_cost
-                            profit_str = f"+{profit_val:,}" if profit_val >= 0 else f"{profit_val:,}"
-                            result_html = (
-                                f'<span style="color:#2ecc71;font-size:1.05em;font-weight:bold">的中！</span>'
-                                f'&nbsp;&nbsp;<span style="color:#2ecc71">💰 払戻 {payout_val:,}円'
-                                f'&nbsp;（{profit_str}円）</span>'
-                            )
-                            lc = "#2ecc71"
-                        elif is_hit_val == 0:
-                            ico = "❌"
-                            result_html = f'<span style="color:#e74c3c;font-size:1.05em;font-weight:bold">外れ</span>&nbsp;&nbsp;<span style="color:#e74c3c">−{actual_cost:,}円</span>'
-                            lc = "#e74c3c"
-                        else:
-                            ico = "⏳"
-                            result_html = '<span style="color:#f39c12">結果待ち</span>'
-                            lc = "#f39c12"
+                # 戦略別では会場・日付も表示、日別では戦略名を表示
+                venue_date_str = f'<span style="color:#888;font-size:0.82em">{row.get("date","")} </span>' if _view_mode == "🎯 戦略別" else ""
 
-                        odds_str  = f"{int(odds_val):,}円" if odds_val > 0 else "未確定"
-                        ev_prov   = ev_mark in ("🔶", "retro")
-                        ev_str    = ("◎ 買い推奨" if ev_mark == "◎"
-                                     else ("🔶 暫定推奨" if ev_prov else "△ 様子見"))
-                        buy_str   = f"軸1車流し {n_combos_val}点・投資 {actual_cost:,}円"
-
-                        st_raw    = _safe_str(row.get("start_time"))
-                        grade_str = _safe_str(row.get("grade"))
-                        _bank_raw = row.get("bank_length")
-                        try:
-                            bank_str = str(int(float(_bank_raw))) if (_bank_raw and not (isinstance(_bank_raw, float) and _math.isnan(_bank_raw))) else ""
-                        except (ValueError, TypeError):
-                            bank_str = ""
-
-                        # 発走時刻・グレード・バンク
-                        meta_parts = []
-                        if st_raw:
-                            meta_parts.append(f"🕐 {st_raw}")
-                        if grade_str:
-                            meta_parts.append(grade_str)
-                        if bank_str:
-                            meta_parts.append(f"バンク{bank_str}m")
-                        meta_html = (
-                            f'<span style="color:#888;font-size:0.82em">{"　".join(meta_parts)}</span><br>'
-                            if meta_parts else ""
-                        )
-
-                        # 実際の着順
-                        race_id_val = row.get("race_id", "")
-                        top3 = _results_map.get(race_id_val, {})
-                        if top3:
-                            medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-                            top3_html = "　".join(
-                                f'{medals[p]} {top3[p]}' for p in sorted(top3)
-                            )
-                            result_section = f'<div>{result_html}</div><div style="color:#aaa;font-size:0.85em;margin-top:3px">着順: {top3_html}</div>'
-                        else:
-                            result_section = f'<div>{result_html}</div>'
-
-                        st.markdown(
-                            f"""
+                st.markdown(f"""
 <div style="border-left:4px solid {lc};padding:10px 16px;margin:6px 0;border-radius:0 8px 8px 0;background:#1a1a2e">
   {meta_html}
   <div style="font-size:1.0em;margin-bottom:4px">
-    {ico} &nbsp;<b>{row['venue']} R{row['race_no']}</b>
+    {ico} {venue_date_str}&nbsp;<b>{row['venue']} R{row['race_no']}</b>
     &nbsp;<span style="color:#ccc">{bet_name}</span>
     &nbsp;軸 <b>{row['axis_car']}車 {row['racer_name']}</b>
     &nbsp;<span style="color:#666;font-size:0.85em">← {row['strategy']}</span>
@@ -838,9 +800,61 @@ elif page == "📊 成績を見る":
   {result_section}
   <div style="color:#666;font-size:0.82em;margin-top:4px">オッズ: {odds_str}　{ev_str}　<span style="color:#555">🎯 {buy_str}</span></div>
 </div>
-""",
-                            unsafe_allow_html=True,
-                        )
+""", unsafe_allow_html=True)
+
+            # ──────── 表示切替 ────────
+            st.divider()
+            _view_mode = st.segmented_control(
+                "詳細表示", ["📅 日別", "🎯 戦略別"], default="📅 日別", key="detail_view"
+            )
+
+            # ──────── 日別表示 ────────
+            if _view_mode == "📅 日別":
+                st.subheader("日別の記録")
+                today_iso = date.today().isoformat()
+                for sig_date in sorted(df_sig["date"].unique(), reverse=True):
+                    df_day  = df_sig[df_sig["date"] == sig_date].copy()
+                    n_hit   = int((df_day["is_hit"] == 1).sum())
+                    n_miss  = int((df_day["is_hit"] == 0).sum())
+                    n_tbd   = int(df_day["is_hit"].isna().sum())
+                    day_pay = int(df_day["actual_payout"].fillna(0).sum())
+                    parts   = []
+                    if n_hit:  parts.append(f"✅ {n_hit}的中")
+                    if n_miss: parts.append(f"❌ {n_miss}外れ")
+                    if n_tbd:  parts.append(f"⏳ {n_tbd}未確定")
+                    summary = "　".join(parts)
+                    if n_hit:  summary += f"　💰 {day_pay:,}円払戻"
+                    is_today = sig_date == today_iso
+                    icon     = "🔴" if is_today else "📅"
+                    with st.expander(f"{icon} {sig_date}　{summary}", expanded=is_today):
+                        for _, row in df_day.iterrows():
+                            _render_signal_card(row)
+
+            # ──────── 戦略別表示 ────────
+            else:
+                st.subheader("戦略別の記録")
+                for strategy_name in sorted(df_sig["strategy"].unique()):
+                    df_strat  = df_sig[df_sig["strategy"] == strategy_name].copy()
+                    n_hit     = int((df_strat["is_hit"] == 1).sum())
+                    n_miss    = int((df_strat["is_hit"] == 0).sum())
+                    n_tbd     = int(df_strat["is_hit"].isna().sum())
+                    total_pay = int(df_strat["actual_payout"].fillna(0).sum())
+                    df_dec    = df_strat[df_strat["is_hit"].notna()]
+                    n_dec     = len(df_dec)
+                    cost_dec  = int((df_dec["n_combos"].fillna(1) * 100).sum()) if n_dec else 0
+                    roi_str   = f"{(total_pay - cost_dec) / cost_dec * 100:+.1f}%" if cost_dec else "-"
+
+                    parts = []
+                    if n_hit:  parts.append(f"✅ {n_hit}的中")
+                    if n_miss: parts.append(f"❌ {n_miss}外れ")
+                    if n_tbd:  parts.append(f"⏳ {n_tbd}未確定")
+                    summary = "　".join(parts)
+                    if n_dec:  summary += f"　収益率 {roi_str}"
+
+                    with st.expander(f"🎯 {strategy_name}　{summary}", expanded=True):
+                        for _, row in df_strat.sort_values(["date","race_no"], ascending=[False, True]).iterrows():
+                            _render_signal_card(row)
+
 
     # ────────────────────────────────
     # 自分の賭け記録
