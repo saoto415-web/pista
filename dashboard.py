@@ -610,17 +610,23 @@ elif page == "📊 成績を見る":
             _start_str = "2000-01-01"
         _end_str = str(date.today())
 
-        df_sig = query_db("""
-            SELECT s.date, s.race_id, s.venue, s.race_no, s.strategy, s.bet_type,
-                   s.axis_car, s.racer_name, s.odds_at_pick, s.ev_mark,
-                   s.is_hit, s.actual_payout,
-                   COALESCE(r.start_time, '') AS start_time,
-                   r.grade, r.bank_length
-            FROM signals s
-            LEFT JOIN races r ON s.race_id = r.race_id
-            WHERE s.date >= ? AND s.date <= ?
-            ORDER BY s.date DESC, s.race_no
-        """, params=(_start_str, _end_str))
+        try:
+            df_sig = query_db("""
+                SELECT s.date, s.race_id, s.venue, s.race_no, s.strategy, s.bet_type,
+                       s.axis_car, s.racer_name, s.odds_at_pick, s.ev_mark,
+                       s.is_hit, s.actual_payout,
+                       COALESCE(r.start_time, '') AS start_time,
+                       r.grade, r.bank_length
+                FROM signals s
+                LEFT JOIN races r ON s.race_id = r.race_id
+                WHERE s.date >= ? AND s.date <= ?
+                ORDER BY s.date DESC, s.race_no
+            """, params=(_start_str, _end_str))
+        except Exception as _sig_err:
+            import traceback as _tb
+            st.error(f"シグナル取得エラー: {_sig_err}")
+            st.code(_tb.format_exc())
+            df_sig = pd.DataFrame()
 
         # 着順データを一括取得（race_id → {1: "3車 山田", 2: "1車 鈴木", ...}）
         _race_ids = df_sig["race_id"].dropna().unique().tolist() if not df_sig.empty else []
@@ -864,11 +870,17 @@ elif page == "📊 成績を見る":
             except Exception as e:
                 st.error(f"保存エラー: {e}")
 
-        df_bets = query_db("""
-            SELECT date, venue, race_no, bet_type, axis_car,
-                   amount, is_hit, payout, profit, notes
-            FROM bets ORDER BY date DESC, race_no DESC
-        """)
+        try:
+            df_bets = query_db("""
+                SELECT date, venue, race_no, bet_type, axis_car,
+                       amount, is_hit, payout, profit, notes
+                FROM bets ORDER BY date DESC, race_no DESC
+            """)
+        except Exception as _bet_err:
+            import traceback as _tb2
+            st.warning(f"記録の読み込みに失敗しました（{_bet_err}）。上のフォームからは記録できます。")
+            st.code(_tb2.format_exc())
+            df_bets = pd.DataFrame()
 
         if df_bets.empty:
             st.info("まだ記録がありません。上のフォームから入力してください。")
