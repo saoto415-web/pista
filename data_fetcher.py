@@ -319,6 +319,27 @@ def init_db():
         conn.rollback()
         logger.warning(f"signals unique index 作成スキップ: {e}")
 
+    # signals / races の venue 名を race_id から正しく修正する
+    # race_id 形式: YYYYMMDD{venue_code:2}{race_no:2}
+    # NAME_TO_CHARILOTO の逆引きで venue_code → 会場名を取得
+    try:
+        _code_to_name = {v: k for k, v in NAME_TO_CHARILOTO.items()}
+        for _code, _name in _code_to_name.items():
+            # race_id の9〜10文字目 (0-indexed: [8:10]) が venue_code と一致するレコードを修正
+            # LIKE パターン: ________XX__ (8文字の日付 + 2文字のコード + 任意)
+            _pattern = f"________{_code}%"
+            c.execute(_db.sql(
+                "UPDATE signals SET venue = ? WHERE race_id LIKE ? AND venue != ?"
+            ), (_name, _pattern, _name))
+            c.execute(_db.sql(
+                "UPDATE races SET venue = ? WHERE race_id LIKE ? AND venue != ?"
+            ), (_name, _pattern, _name))
+        conn.commit()
+        logger.info("venue 名マイグレーション完了")
+    except Exception as e:
+        conn.rollback()
+        logger.warning(f"venue マイグレーションスキップ: {e}")
+
     conn.commit()
     conn.close()
 
