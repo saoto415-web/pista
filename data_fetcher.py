@@ -73,85 +73,43 @@ CHARILOTO_URL  = "https://chariloto.com"
 
 # 競輪場コード (naibuKeirinCd) → (名前, バンク長)
 # keirin.jp の RaceList.naibuKeirinCd に基づく内部コード
-VENUE_MAP = {
-    "11": ("函館",    333),
-    "12": ("青森",    400),
-    "13": ("いわき平", 400),
-    "21": ("弥彦",    400),
-    "22": ("前橋",    333),
-    "23": ("取手",    400),
-    "24": ("宇都宮",  333),
-    "25": ("大宮",    400),
-    "26": ("西武園",  400),
-    "27": ("京王閣",  400),
-    "28": ("立川",    400),
-    "29": ("松戸",    400),
-    "31": ("千葉",    400),
-    "34": ("静岡",    333),
-    "35": ("名古屋",  400),
-    "36": ("岐阜",    400),
-    "42": ("向日町",  333),
-    "43": ("和歌山",  400),
-    "44": ("岸和田",  400),
-    "45": ("小松島",  400),
-    "46": ("玉野",    400),
-    "47": ("松阪",    400),
-    "51": ("広島",    400),
-    "52": ("防府",    400),
-    "53": ("奈良",    400),
-    "54": ("高松",    333),
-    "57": ("小倉",    400),
-    "61": ("武雄",    400),
-    "62": ("佐世保",  400),
-    "71": ("大分",    400),
-    "75": ("松山",    333),
-    "77": ("高知",    333),
-    "86": ("別府",    400),
-    "87": ("熊本",    400),
-}
+# VENUE_MAP: keirin.jp の naibuKeirinCd → (会場名, バンク長)
+# ※ このマップは fetch_kaisai_for_month() で keirin.jp の実データにより随時上書きされる。
+#   keirin.jp コード = chariloto コードであることが実測で確認された（2025〜2026年）。
+#   古いコードは参考値。
+VENUE_MAP: dict[str, tuple[str, int]] = {}
 
-# 競輪場名 → バンク長（VENUE_MAP にないコードの補完用）
+# 会場名 → バンク長（固定物理データ）
 _BANK_BY_NAME: dict[str, int] = {
-    name: bank for name, bank in VENUE_MAP.values()
+    "函館": 333, "青森": 400, "いわき平": 400, "弥彦": 400,
+    "前橋": 333, "取手": 400, "宇都宮": 333, "大宮": 400,
+    "西武園": 400, "京王閣": 400, "立川": 400, "松戸": 400,
+    "千葉": 400, "川崎": 400, "平塚": 335, "小田原": 500,
+    "伊東": 333, "静岡": 333, "名古屋": 400, "岐阜": 400,
+    "大垣": 333, "豊橋": 400, "富山": 400, "松阪": 400,
+    "四日市": 333, "福井": 400, "奈良": 400, "向日町": 333,
+    "和歌山": 400, "岸和田": 400, "玉野": 400, "広島": 400,
+    "防府": 400, "高松": 333, "小松島": 400, "高知": 333,
+    "松山": 333, "小倉": 400, "久留米": 400, "武雄": 400,
+    "佐世保": 400, "別府": 400, "熊本": 400,
 }
 
-# keirin.jp の naibuKeirinCd → chariloto.com の venue コード変換マップ
-# ※ コード11〜28 は両者一致。29以降は完全に別体系。
-# ※ race_id には keirin.jp コードを使い続け、URL だけ chariloto コードを使う。
-KEIRIN_TO_CHARILOTO: dict[str, str] = {
-    "11": "11",  # 函館
-    "12": "12",  # 青森
-    "13": "13",  # いわき平
-    "21": "21",  # 弥彦
-    "22": "22",  # 前橋
-    "23": "23",  # 取手
-    "24": "24",  # 宇都宮
-    "25": "25",  # 大宮
-    "26": "26",  # 西武園
-    "27": "27",  # 京王閣
-    "28": "28",  # 立川
-    "29": "31",  # 松戸
-    "31": "32",  # 千葉
-    "34": "38",  # 静岡
-    "35": "42",  # 名古屋
-    "36": "43",  # 岐阜
-    "42": "54",  # 向日町
-    "43": "55",  # 和歌山
-    "44": "56",  # 岸和田
-    "45": "73",  # 小松島
-    "46": "61",  # 玉野
-    "47": "47",  # 松阪
-    "51": "62",  # 広島
-    "52": "63",  # 防府
-    "53": "53",  # 奈良
-    "54": "71",  # 高松
-    "57": "81",  # 小倉
-    "61": "84",  # 武雄
-    "62": "85",  # 佐世保
-    "75": "75",  # 松山
-    "77": "74",  # 高知
-    "86": "86",  # 別府
-    "87": "87",  # 熊本
+# 会場名 → chariloto.com の venue コード
+# ※ keirin.jp コード = chariloto コードであることを実測で確認済み（2025〜2026年）。
+#   このマップは会場名を介することで keirin.jp コードの変更に強くなる。
+NAME_TO_CHARILOTO: dict[str, str] = {
+    "函館": "11", "青森": "12", "いわき平": "13",
+    "弥彦": "21", "前橋": "22", "取手": "23", "宇都宮": "24",
+    "大宮": "25", "西武園": "26", "京王閣": "27", "立川": "28",
+    "松戸": "31", "千葉": "32", "川崎": "34", "平塚": "35",
+    "小田原": "36", "伊東": "37", "静岡": "38",
+    "名古屋": "42", "岐阜": "43", "大垣": "44", "豊橋": "45",
+    "富山": "46", "松阪": "47", "四日市": "48",
+    "福井": "51", "奈良": "53", "向日町": "54", "和歌山": "55",
+    "岸和田": "56", "玉野": "61", "広島": "62", "防府": "63",
+    "高松": "71", "小松島": "73", "高知": "74", "松山": "75",
+    "小倉": "81", "久留米": "83", "武雄": "84", "佐世保": "85",
+    "別府": "86", "熊本": "87",
 }
 
 # sInfo.sstyle (int) → 脚質文字
@@ -336,6 +294,31 @@ def init_db():
     except Exception:
         conn.rollback()
 
+    # signals 重複防止インデックス
+    # 既存重複を先に削除してからインデックスを作成
+    try:
+        if _db.is_pg():
+            # PostgreSQL: 古い重複行を削除（id最小を残す）
+            c.execute("""
+                DELETE FROM signals WHERE id NOT IN (
+                    SELECT MIN(id) FROM signals
+                    GROUP BY race_id, strategy, bet_type, axis_car
+                )
+            """)
+        else:
+            c.execute("""
+                DELETE FROM signals WHERE rowid NOT IN (
+                    SELECT MIN(rowid) FROM signals
+                    GROUP BY race_id, strategy, bet_type, axis_car
+                )
+            """)
+        conn.commit()
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS signals_unique_idx ON signals (race_id, strategy, bet_type, axis_car)")
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.warning(f"signals unique index 作成スキップ: {e}")
+
     conn.commit()
     conn.close()
 
@@ -441,8 +424,8 @@ def fetch_kaisai_for_month(year: int, month: int) -> list[dict]:
         if not encp or not kaisai_date:
             continue
 
-        # VENUE_MAP にないコードは名前からバンク長を補完
-        if venue_code not in VENUE_MAP and venue_name:
+        # keirin.jp の実データで VENUE_MAP を常に更新（名前が正しいソース）
+        if venue_code and venue_name:
             bank = _BANK_BY_NAME.get(venue_name, 400)
             VENUE_MAP[venue_code] = (venue_name, bank)
 
@@ -1253,8 +1236,9 @@ def _fetch_chariloto_day(venue_code: str, date_str: str) -> dict:
     if cache_key in _chariloto_day_cache:
         return _chariloto_day_cache[cache_key]
 
-    # keirin.jp コード → chariloto コードに変換（URL用）
-    chariloto_code = KEIRIN_TO_CHARILOTO.get(venue_code, venue_code)
+    # 会場名から chariloto コードを引く（名前ベースのほうが keirin.jp コード変更に強い）
+    venue_name     = VENUE_MAP.get(venue_code, (None,))[0]
+    chariloto_code = NAME_TO_CHARILOTO.get(venue_name, venue_code) if venue_name else venue_code
     date_fmt = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
     url = f"{CHARILOTO_URL}/keirin/results/{chariloto_code}/{date_fmt}"
     resp = _get(url)
@@ -1267,7 +1251,7 @@ def _fetch_chariloto_day(venue_code: str, date_str: str) -> dict:
     tables = soup.select("table")
     result = _parse_chariloto_tables(tables, venue_code, date_str)
     _chariloto_day_cache[cache_key] = result
-    logger.debug(f"chariloto: {venue_code}(→{chariloto_code})/{date_str} → {len(result)}レース分")
+    logger.debug(f"chariloto: {venue_code}({venue_name}→{chariloto_code})/{date_str} → {len(result)}レース分")
     return result
 
 
@@ -1635,7 +1619,8 @@ def _fetch_chariloto_venue_dates(venue_code: str) -> list[str]:
     venue_code は keirin.jp の naibuKeirinCd（内部は KEIRIN_TO_CHARILOTO で変換）。
     返り値: YYYYMMDD 形式のリスト（新しい順）
     """
-    chariloto_code = KEIRIN_TO_CHARILOTO.get(venue_code, venue_code)
+    venue_name     = VENUE_MAP.get(venue_code, (None,))[0]
+    chariloto_code = NAME_TO_CHARILOTO.get(venue_name, venue_code) if venue_name else venue_code
     url  = f"{CHARILOTO_URL}/keirin/results/{chariloto_code}"
     resp = _get(url)
     if not resp:
@@ -1768,7 +1753,8 @@ def run_fetch(years: int = 2, specific_date: str | None = None, days: int | None
                 time.sleep(2.0)
         else:
             # 過去 → chariloto（全会場試行）
-            for venue_code in VENUE_MAP.keys():
+            # keirin コード = chariloto コードなので NAME_TO_CHARILOTO の値でループ
+            for venue_code in sorted(set(NAME_TO_CHARILOTO.values())):
                 n = _save_chariloto_date(venue_code, specific_date)
                 total_saved += n
                 if n:
@@ -1777,9 +1763,10 @@ def run_fetch(years: int = 2, specific_date: str | None = None, days: int | None
         return
 
     # 全期間: 各会場の過去開催日をcharilotoから取得
+    # keirin コード = chariloto コードなので NAME_TO_CHARILOTO の値（chariloto コード）でループ
     logger.info(f"=== 全会場 過去データ取得（{years}年分、cutoff={cutoff_str}）===")
-    for venue_code in sorted(VENUE_MAP.keys()):
-        venue_name = VENUE_MAP.get(venue_code, (venue_code,))[0]
+    for venue_code in sorted(set(NAME_TO_CHARILOTO.values())):
+        venue_name = dict({v: k for k, v in NAME_TO_CHARILOTO.items()}).get(venue_code, venue_code)
         dates = _fetch_chariloto_venue_dates(venue_code)
         dates = [d for d in dates if d >= cutoff_str]
         logger.info(f"{venue_name} ({venue_code}): {len(dates)}開催日")
