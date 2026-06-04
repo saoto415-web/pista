@@ -67,13 +67,40 @@ PARAM_SPACE: dict[str, dict] = {
 }
 
 BET_TYPE_MAP = {
-    "LineLeader":  "nishafuku",
-    "ClassValue":  "nishafuku",
-    "GradeFilter": "nishafuku",
-    "FormPeak":    "nishafuku",
-    "ValueHunt":   "wide",
-    "BankSpec":    "wide",
+    "LineLeader":         "nishafuku",
+    "ClassValue":         "nishafuku",
+    "GradeFilter":        "nishafuku",
+    "FormPeak":           "nishafuku",
+    "FormPeakSanrentan":  "sanrentan",   # 新戦略: FormPeak × 三連単
+    "FormPeakSanrenfuku": "sanrenfuku",  # 新戦略: FormPeak × 三連複
+    "ValueHunt":          "wide",
+    "BankSpec":           "wide",
 }
+
+# FormPeakSanrentan: ライン先頭の好調選手を三連単軸1着で狙う
+PARAM_SPACE["FormPeakSanrentan"] = {
+    "max_prev_finish":     [1, 2],
+    "max_days_since_last": [14, 21, 28],
+    "min_popularity":      [3, 4, 5],
+    "max_popularity":      [8, 9, 10, 12],
+    "min_racer_win_rate":  [0.05, 0.08, 0.10],
+    "min_line_size":       [1, 2, 3],
+    "require_line_leader": [1],   # 三連単なので常にライン先頭必須
+}
+
+# FormPeakSanrenfuku: 好調選手を三連複の軸として狙う（順不同なので三連単より的中しやすい）
+PARAM_SPACE["FormPeakSanrenfuku"] = {
+    "max_prev_finish":     [1, 2, 3],
+    "max_days_since_last": [7, 14, 21, 28],
+    "min_popularity":      [3, 4, 5],
+    "max_popularity":      [8, 9, 10, 12],
+    "min_racer_win_rate":  [0.05, 0.08, 0.10, 0.12],
+    "min_line_size":       [1, 2, 3],
+    "require_line_leader": [0, 1],
+}
+
+# FormPeakSanrentan/Sanrenfuku は strategy_engine でも FormPeak の条件を使う
+# （名前が "FormPeak" で始まるため _passes が同じロジックを適用）
 
 
 @dataclass

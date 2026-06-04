@@ -191,10 +191,12 @@ def _passes(h: dict, name: str, p: dict) -> bool:
 
 def get_default_strategies() -> list[StrategyConfig]:
     return [
-        StrategyConfig("LineLeader",  "tansho"),
-        StrategyConfig("ClassValue",  "tansho"),
-        StrategyConfig("GradeFilter", "fukusho"),
-        StrategyConfig("FormPeak",    "tansho"),
-        StrategyConfig("ValueHunt",   "tansho"),
-        StrategyConfig("BankSpec",    "fukusho"),
+        StrategyConfig("LineLeader",         "tansho"),
+        StrategyConfig("ClassValue",         "tansho"),
+        StrategyConfig("GradeFilter",        "fukusho"),
+        StrategyConfig("FormPeak",           "tansho"),
+        StrategyConfig("FormPeakSanrentan",  "sanrentan"),
+        StrategyConfig("FormPeakSanrenfuku", "sanrenfuku"),
+        StrategyConfig("ValueHunt",          "tansho"),
+        StrategyConfig("BankSpec",           "fukusho"),
     ]
