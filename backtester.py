@@ -75,10 +75,10 @@ def _is_hit(signal: BetSignal, race_horses: list[dict]) -> tuple[bool, int | Non
         return pos == 1, pos
     elif signal.bet_type in ("fukusho", "nishafuku"):
         return pos <= 2, pos
-    elif signal.bet_type == "wide":
+    elif signal.bet_type in ("wide", "sanrenfuku"):
         return pos <= 3, pos
-    elif signal.bet_type == "sanrenfuku":
-        return pos <= 3, pos
+    elif signal.bet_type == "sanrentan":
+        return pos == 1, pos   # 軸1着固定で的中判定
     return False, pos
 
 
@@ -129,9 +129,37 @@ def _estimate_return(
                 return float(p["payout"])
         return 0.0
 
-    if signal.bet_type in ("fukusho", "sanrenfuku"):
+    if signal.bet_type == "sanrenfuku":
+        total = 0.0
         for p in race_payouts:
-            if p["bet_type"] == signal.bet_type and p["car_no1"] == car:
+            if p["bet_type"] != "sanrenfuku":
+                continue
+            involved = {p.get("car_no1"), p.get("car_no2"), p.get("car_no3")}
+            if car not in involved:
+                continue
+            if buy_mode == "line" and partners:
+                if not partners.issubset(involved):
+                    continue
+            total += float(p["payout"])
+        return total
+
+    if signal.bet_type == "sanrentan":
+        # 軸1着固定: car_no1 == axis
+        total = 0.0
+        for p in race_payouts:
+            if p["bet_type"] != "sanrentan" or p.get("car_no1") != car:
+                continue
+            if buy_mode == "line" and partners:
+                # ライン内2・3着の組み合わせのみ
+                p2, p3 = p.get("car_no2"), p.get("car_no3")
+                if p2 not in partners or p3 not in partners:
+                    continue
+            total += float(p["payout"])
+        return total
+
+    if signal.bet_type == "fukusho":
+        for p in race_payouts:
+            if p["bet_type"] == "fukusho" and p["car_no1"] == car:
                 return float(p["payout"])
         return 0.0
 
@@ -165,7 +193,15 @@ def run_backtest(
         for sig in signals:
             # 買いモードごとのコスト計算
             if buy_mode == "line" and sig.line_partner_cars:
-                n_combos = len(sig.line_partner_cars)   # ライン内の相手数
+                partners_n = len(sig.line_partner_cars)
+                if sig.bet_type == "sanrentan":
+                    # 軸1着 + ライン内2頭の順列 = P(partners, 2)
+                    import math
+                    n_combos = max(math.perm(partners_n, 2) if partners_n >= 2 else 1, 1)
+                elif sig.bet_type == "sanrenfuku":
+                    n_combos = max(partners_n, 1)   # ライン内の組み合わせ数
+                else:
+                    n_combos = max(partners_n, 1)   # 2車複/ワイドはライン相手数
             else:
                 n_combos = max(len(horses) - 1, 1)     # 全流し（全頭 - 軸1頭）
 
