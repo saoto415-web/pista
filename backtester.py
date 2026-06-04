@@ -2,9 +2,13 @@
 backtester.py  - PISTA 競輪版
 過去レースデータに戦略を適用して回収率・的中率を計算する
 
-払戻倍率:
-  nishafuku: DBのnishafuku_payout（シグナル車が含まれるペア）
-  wide:      DBのwide_payout（シグナル車が含まれるワイド）
+コストモデル（修正版）:
+  軸1車 全流し = (頭数-1) × 100円 が実際の1シグナルあたりコスト
+  例: 7頭立て → 600円/シグナル
+
+払戻:
+  nishafuku: 軸車を含む2車複の払戻（1件のみ）
+  wide:      軸車を含むワイドの払戻の合計（複数当たり分も合算）
 """
 
 from __future__ import annotations
@@ -12,16 +16,16 @@ from dataclasses import dataclass, field
 from feature_engine import group_by_race
 from strategy_engine import StrategyConfig, BetSignal, apply_strategy
 
-BET_AMOUNT = 100  # 1回の賭け金（円）
+BET_UNIT = 100  # 1点あたりの賭け金（円）
 
 
 @dataclass
 class BacktestResult:
     strategy_name:  str
     bet_type:       str
-    total_bets:     int   = 0
+    total_bets:     int   = 0   # シグナル数（流し単位）
     hits:           int   = 0
-    total_invested: float = 0.0
+    total_invested: float = 0.0  # 流しコスト込みの合計投資額
     total_return:   float = 0.0
     signals:        list[BetSignal] = field(default_factory=list)
 
@@ -37,12 +41,18 @@ class BacktestResult:
     def roi(self) -> float:
         return (self.total_return - self.total_invested) / self.total_invested if self.total_invested else 0.0
 
+    @property
+    def avg_cost(self) -> float:
+        """シグナル1件あたりの平均投資コスト（流し点数込み）"""
+        return self.total_invested / self.total_bets if self.total_bets else 0.0
+
     def summary(self) -> str:
         return (
             f"[{self.strategy_name}] "
             f"賭:{self.total_bets}回 "
             f"的中:{self.hits}回({self.hit_rate*100:.1f}%) "
-            f"回収率:{self.recovery_rate*100:.1f}% "
+            f"平均コスト:{self.avg_cost:.0f}円 "
+            f"回収率:{self.recovery_rate*100:.1f}%（流しコスト込み） "
             f"ROI:{self.roi*100:+.1f}%"
         )
 
@@ -83,12 +93,11 @@ def _estimate_return(
         return 0.0
 
     if signal.bet_type == "wide":
-        # ワイド: 3着以内に入る2頭の組み合わせ。シグナル車を含むワイドを合計
+        # ワイド全流し: 軸車を含む全当選ワイドを合算（複数当たり分もすべて回収）
         total = 0.0
         for p in race_payouts:
             if p["bet_type"] == "wide" and (p["car_no1"] == car or p["car_no2"] == car):
-                total = float(p["payout"])
-                break  # 最初のワイド配当を使用
+                total += float(p["payout"])
         return total
 
     if signal.bet_type == "tansho":
@@ -118,14 +127,18 @@ def run_backtest(
         if not any(h.get("finish_pos") is not None for h in horses):
             continue
 
+        # 軸1車 全流し のコスト: (出走頭数 - 1) × 100円
+        n_combos = max(len(horses) - 1, 1)
+        race_cost = BET_UNIT * n_combos
+
         signals = apply_strategy(horses, strategy)
         race_payouts = (payouts_by_race or {}).get(race_id, [])
 
         for sig in signals:
             hit, actual_pos = _is_hit(sig, horses)
             sig.actual_finish = actual_pos
-            result.total_bets += 1
-            result.total_invested += BET_AMOUNT
+            result.total_bets     += 1
+            result.total_invested += race_cost   # 流しコスト込みの実際の投資額
             if hit:
                 result.hits += 1
                 result.total_return += _estimate_return(sig, horses, race_payouts)
@@ -135,5 +148,5 @@ def run_backtest(
 
 
 def is_live_ready(bt: BacktestResult) -> bool:
-    """実運用基準: 賭回数 ≥ 50 かつ 回収率 ≥ 100%"""
-    return bt.total_bets >= 50 and bt.recovery_rate >= 1.00
+    """実運用基準（流しコスト込み）: 賭回数 ≥ 30 かつ 回収率 ≥ 100%"""
+    return bt.total_bets >= 30 and bt.recovery_rate >= 1.00

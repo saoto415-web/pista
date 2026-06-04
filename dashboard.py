@@ -142,18 +142,25 @@ def parse_optimize_log() -> list[dict]:
             return []
         text = log_path.read_text(encoding="utf-8")
     results = []
-    for m in re.finditer(
-        r"テスト: \[(\w+)\] 賭:(\d+)回 的中:(\d+)回\(([0-9.]+)%\) 回収率:([0-9.]+)% ROI:([+\-][0-9.]+)%\s*([✅❌])",
-        text,
-    ):
+    # 新形式（流しコスト込み）と旧形式の両方に対応
+    pattern = re.compile(
+        r"テスト: \[(\w+)\] 賭:(\d+)回 的中:(\d+)回\(([0-9.]+)%\)"
+        r"(?:\s*平均コスト:([0-9.]+)円)?"          # 新形式: 平均コスト（任意）
+        r"\s*回収率:([0-9.]+)%"
+        r"(?:（流しコスト込み）)?"                   # 新形式: ラベル（任意）
+        r"\s*ROI:([+\-][0-9.]+)%"
+        r"\s*([✅❌])"
+    )
+    for m in pattern.finditer(text):
         results.append({
-            "戦略":   m.group(1),
-            "賭回数": int(m.group(2)),
-            "的中数": int(m.group(3)),
-            "的中率": float(m.group(4)),
-            "回収率": float(m.group(5)),
-            "収益率": float(m.group(6)),
-            "採用":   m.group(7) == "✅",
+            "戦略":       m.group(1),
+            "賭回数":     int(m.group(2)),
+            "的中数":     int(m.group(3)),
+            "的中率":     float(m.group(4)),
+            "平均コスト": float(m.group(5)) if m.group(5) else None,
+            "回収率":     float(m.group(6)),
+            "収益率":     float(m.group(7)),
+            "採用":       m.group(8) == "✅",
         })
     return results
 
@@ -1007,6 +1014,7 @@ elif page == "⚙️ ツール":
     # ── 戦略バックテスト
     with t1:
         st.subheader("戦略バックテスト成績")
+        st.caption("⚠️ 回収率は軸1車 全流しコスト（頭数−1点）込みの実態値。100%超 = 利益あり。")
         opt_results = parse_optimize_log()
         if opt_results:
             df_opt = pd.DataFrame(opt_results)
@@ -1020,21 +1028,25 @@ elif page == "⚙️ ツール":
             fig.add_hline(y=100, line_dash="dash", line_color="white",
                           annotation_text="損益分岐ライン（100%）")
             fig.update_layout(
-                title="バックテスト 回収率（緑 = 採用済み）",
+                title="バックテスト 回収率（全流しコスト込み／緑 = 採用済み）",
                 yaxis_title="回収率 (%)",
                 plot_bgcolor="#0e1117", paper_bgcolor="#0e1117",
                 font_color="white", height=380,
             )
             st.plotly_chart(fig, use_container_width=True)
 
-            df_disp = df_opt[["戦略", "賭回数", "的中率", "回収率", "収益率", "採用"]].copy()
-            df_disp["的中率"] = df_disp["的中率"].map("{:.1f}%".format)
-            df_disp["回収率"] = df_disp["回収率"].map("{:.1f}%".format)
-            df_disp["収益率"] = df_disp["収益率"].map("{:+.1f}%".format)
-            df_disp["採用"]   = df_disp["採用"].map({True: "✅ 採用", False: "❌ 未採用"})
+            df_disp = df_opt[["戦略", "賭回数", "的中率", "平均コスト", "回収率", "収益率", "採用"]].copy()
+            df_disp["的中率"]     = df_disp["的中率"].map("{:.1f}%".format)
+            df_disp["平均コスト"] = df_disp["平均コスト"].apply(
+                lambda v: f"{int(v):,}円" if v is not None else "-"
+            )
+            df_disp["回収率"]     = df_disp["回収率"].map("{:.1f}%".format)
+            df_disp["収益率"]     = df_disp["収益率"].map("{:+.1f}%".format)
+            df_disp["採用"]       = df_disp["採用"].map({True: "✅ 採用", False: "❌ 未採用"})
             st.dataframe(df_disp, use_container_width=True, hide_index=True)
+            st.info("📌 次回 --optimize 実行後に新しい回収率が表示されます（現在表示は旧基準の数値の可能性あり）")
         else:
-            st.info("バックテスト結果がありません。")
+            st.info("バックテスト結果がありません。ツール画面から --optimize を実行してください。")
 
     # ── データ概要
     with t2:
