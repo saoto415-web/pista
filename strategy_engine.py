@@ -164,6 +164,9 @@ def _passes(h: dict, name: str, p: dict) -> bool:
             and h.get("days_since_last", 999) <= p["max_days_since_last"]
             and p["min_popularity"] <= pop <= p["max_popularity"]
             and h.get("racer_win_rate", 0) >= p["min_racer_win_rate"]
+            # 三連単向け追加条件（デフォルト: 条件なし）
+            and h.get("line_size", 1) >= p.get("min_line_size", 1)
+            and (p.get("require_line_leader", 0) == 0 or h.get("is_line_leader", 0) == 1)
         )
 
     elif name == "ValueHunt":

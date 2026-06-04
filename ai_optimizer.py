@@ -46,6 +46,9 @@ PARAM_SPACE: dict[str, dict] = {
         "min_popularity":      [2, 3, 4, 5],
         "max_popularity":      [7, 8, 9, 10],
         "min_racer_win_rate":  [0.05, 0.08, 0.10, 0.12],
+        # 三連単向け追加条件
+        "min_line_size":       [1, 2, 3],    # 最低ライン人数（3=3車ライン必須）
+        "require_line_leader": [0, 1],       # 1=ライン先頭のみ対象
     },
     "ValueHunt": {
         "min_popularity":    [3, 4, 5, 6],
