@@ -265,6 +265,8 @@ def _build_line_features(
     feats["rival_line_size"]   = rival_best_size
     feats["rival_line_class"]  = rival_best_class
     feats["line_class_edge"]   = my_avg_class - rival_best_class
+    # 同一ライン内の他車番（買い目絞り込みに使用）
+    feats["line_partner_cars"] = [m["car_no"] for m in my_members if m["car_no"] != car_no]
 
     return feats
 

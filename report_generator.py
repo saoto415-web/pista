@@ -159,14 +159,20 @@ def generate_picks_report(
                 f"← {sig.strategy}"
             )
             lines.append(f"       {ev_desc}")
-            # 具体的な買い方
+            # 具体的な買い方（ライン内流し優先、ライン情報なければ全流し）
             axis = sig.car_no
-            others = [c for c in all_cars if c != axis]
+            line_partners = sorted(sig.line_partner_cars) if sig.line_partner_cars else []
+            if line_partners:
+                others     = line_partners
+                mode_label = "ライン内流し"
+            else:
+                others     = [c for c in all_cars if c != axis]
+                mode_label = "全流し"
             others_str = "・".join(str(c) for c in others)
             n_combos = len(others)
             total = n_combos * 100
             bet_name = "2車複" if sig.bet_type.lower() == "nishafuku" else "ワイド"
-            lines.append(f"    ┌─【買い方】{bet_name} 軸1頭流し")
+            lines.append(f"    ┌─【買い方】{bet_name} 軸1頭{mode_label}")
             lines.append(f"    │  軸  : {axis}車")
             lines.append(f"    │  相手: {others_str}車（全{n_combos}点）")
             lines.append(f"    └─ 合計: {total}円（1点100円）")

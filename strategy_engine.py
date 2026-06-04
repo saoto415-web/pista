@@ -85,7 +85,12 @@ class BetSignal:
     odds:       float
     bet_type:   str
     strategy:   str
-    actual_finish: int | None = None
+    actual_finish:    int | None = None
+    line_partner_cars: list = None   # 同一ライン内の他車番（ライン内流し用）
+
+    def __post_init__(self):
+        if self.line_partner_cars is None:
+            self.line_partner_cars = []
 
 
 def apply_strategy(race_horses: list[dict], strategy: StrategyConfig) -> list[BetSignal]:
@@ -113,6 +118,7 @@ def apply_strategy(race_horses: list[dict], strategy: StrategyConfig) -> list[Be
             odds=h.get("odds", 0.0),
             bet_type=strategy.bet_type,
             strategy=strategy.name,
+            line_partner_cars=list(h.get("line_partner_cars") or []),
         ))
 
     if signals:

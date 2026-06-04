@@ -2,13 +2,19 @@
 backtester.py  - PISTA 競輪版
 過去レースデータに戦略を適用して回収率・的中率を計算する
 
-コストモデル（修正版）:
-  軸1車 全流し = (頭数-1) × 100円 が実際の1シグナルあたりコスト
-  例: 7頭立て → 600円/シグナル
+買いモード (buy_mode):
+  "full"  : 軸1車 全流し = (頭数-1) 点 … デフォルト
+  "line"  : 軸1車 ライン内流し = ライン内の他車番のみ
+
+コストモデル:
+  full: (頭数-1) × 100円 / シグナル
+  line: max(len(line_partner_cars), 1) × 100円 / シグナル
 
 払戻:
-  nishafuku: 軸車を含む2車複の払戻（1件のみ）
-  wide:      軸車を含むワイドの払戻の合計（複数当たり分も合算）
+  nishafuku full : 軸車を含む2車複の払戻（1件）
+  nishafuku line : 軸車 + ライン内パートナーの2車複のみ集計
+  wide full      : 軸車を含む全ワイドの合算
+  wide line      : 軸車 + ライン内パートナーのワイドのみ合算
 """
 
 from __future__ import annotations
@@ -80,24 +86,41 @@ def _estimate_return(
     signal: BetSignal,
     race_horses: list[dict],
     race_payouts: list[dict] | None = None,
+    buy_mode: str = "full",
 ) -> float:
     if not race_payouts:
         return 0.0
 
     car = signal.car_no
+    partners = set(signal.line_partner_cars) if signal.line_partner_cars else set()
 
     if signal.bet_type == "nishafuku":
-        for p in race_payouts:
-            if p["bet_type"] == "nishafuku" and (p["car_no1"] == car or p["car_no2"] == car):
-                return float(p["payout"])
-        return 0.0
-
-    if signal.bet_type == "wide":
-        # ワイド全流し: 軸車を含む全当選ワイドを合算（複数当たり分もすべて回収）
         total = 0.0
         for p in race_payouts:
-            if p["bet_type"] == "wide" and (p["car_no1"] == car or p["car_no2"] == car):
-                total += float(p["payout"])
+            if p["bet_type"] != "nishafuku":
+                continue
+            if not (p["car_no1"] == car or p["car_no2"] == car):
+                continue
+            if buy_mode == "line" and partners:
+                # ライン内流し: 相手がラインパートナーである組み合わせのみ
+                other = p["car_no2"] if p["car_no1"] == car else p["car_no1"]
+                if other not in partners:
+                    continue
+            total += float(p["payout"])
+        return total
+
+    if signal.bet_type == "wide":
+        total = 0.0
+        for p in race_payouts:
+            if p["bet_type"] != "wide":
+                continue
+            if not (p["car_no1"] == car or p["car_no2"] == car):
+                continue
+            if buy_mode == "line" and partners:
+                other = p["car_no2"] if p["car_no1"] == car else p["car_no1"]
+                if other not in partners:
+                    continue
+            total += float(p["payout"])
         return total
 
     if signal.bet_type == "tansho":
@@ -119,29 +142,42 @@ def run_backtest(
     enriched_rows: list[dict],
     strategy: StrategyConfig,
     payouts_by_race: dict[str, list[dict]] | None = None,
+    buy_mode: str = "full",   # "full"=全流し / "line"=ライン内流し
 ) -> BacktestResult:
+    """
+    buy_mode:
+      "full" : 軸1車 全流し（全頭を相手にする）
+      "line" : 軸1車 ライン内流し（同一ライン内の選手だけを相手にする）
+    """
     races  = group_by_race(enriched_rows)
-    result = BacktestResult(strategy_name=strategy.name, bet_type=strategy.bet_type)
+    result = BacktestResult(
+        strategy_name=f"{strategy.name}[{buy_mode}]",
+        bet_type=strategy.bet_type,
+    )
 
     for race_id, horses in races.items():
         if not any(h.get("finish_pos") is not None for h in horses):
             continue
 
-        # 軸1車 全流し のコスト: (出走頭数 - 1) × 100円
-        n_combos = max(len(horses) - 1, 1)
-        race_cost = BET_UNIT * n_combos
-
         signals = apply_strategy(horses, strategy)
         race_payouts = (payouts_by_race or {}).get(race_id, [])
 
         for sig in signals:
+            # 買いモードごとのコスト計算
+            if buy_mode == "line" and sig.line_partner_cars:
+                n_combos = len(sig.line_partner_cars)   # ライン内の相手数
+            else:
+                n_combos = max(len(horses) - 1, 1)     # 全流し（全頭 - 軸1頭）
+
+            race_cost = BET_UNIT * n_combos
+
             hit, actual_pos = _is_hit(sig, horses)
             sig.actual_finish = actual_pos
             result.total_bets     += 1
-            result.total_invested += race_cost   # 流しコスト込みの実際の投資額
+            result.total_invested += race_cost
             if hit:
                 result.hits += 1
-                result.total_return += _estimate_return(sig, horses, race_payouts)
+                result.total_return += _estimate_return(sig, horses, race_payouts, buy_mode)
             result.signals.append(sig)
 
     return result

@@ -291,7 +291,11 @@ def _save_signals(feat_rows: list, live_strategies: list):
                         hit_rate_map.get(sig.strategy),
                         avg_payout=avg_payout_map.get(sig.strategy),
                     )
-                    n_combos = max(n_cars - 1, 1)  # 軸1車流し = 他全頭が相手
+                    # ライン情報があればライン内流し、なければ全流し
+                    if sig.line_partner_cars:
+                        n_combos = len(sig.line_partner_cars)
+                    else:
+                        n_combos = max(n_cars - 1, 1)
                     c.execute(_db.sql("""
                         INSERT OR IGNORE INTO signals
                         (date, race_id, venue, race_no, strategy, bet_type,

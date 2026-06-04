@@ -118,6 +118,7 @@ def optimize(
     seed: int = 42,
     train_ratio: float = 0.7,
     payouts_by_race: dict | None = None,
+    buy_mode: str = "line",   # "full"=全流し / "line"=ライン内流し（デフォルト）
 ) -> list[OptimResult]:
     random.seed(seed)
     train_rows, test_rows = _split_rows(enriched_rows, train_ratio)
@@ -150,7 +151,7 @@ def optimize(
                 bet_type=BET_TYPE_MAP[strategy_name],
                 params=params,
             )
-            bt = run_backtest(train_rows, strategy, train_payouts)
+            bt = run_backtest(train_rows, strategy, train_payouts, buy_mode=buy_mode)
             if bt.total_bets < 10:
                 continue
 
@@ -161,7 +162,7 @@ def optimize(
         if best_strategy is None or best_train_bt is None:
             continue
 
-        test_bt = run_backtest(test_rows, best_strategy, test_payouts)
+        test_bt = run_backtest(test_rows, best_strategy, test_payouts, buy_mode=buy_mode)
         live    = is_live_ready(test_bt)
 
         optim = OptimResult(
