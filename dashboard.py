@@ -378,10 +378,22 @@ if page == "🏠 今日の買い目":
             st.warning("本日の推奨レースが見つかりません。「最新予想を取得」を押してください。")
         st.stop()
 
-    st.markdown(f"### 本日の推奨　{len(races_upcoming)} 件")
+    # 戦略の色・説明マップ
+    _STRATEGY_STYLE = {
+        "FormPeak":   {"color": "#e74c3c", "label": "🔥 FormPeak", "note": "直近好調・短間隔出走の中穴狙い"},
+        "LineLeader": {"color": "#3498db", "label": "🚀 LineLeader", "note": "ライン先頭の逃げ馬狙い"},
+        "ClassValue": {"color": "#9b59b6", "label": "💎 ClassValue", "note": "クラス実力と人気のギャップ狙い"},
+        "GradeFilter":{"color": "#1abc9c", "label": "🏆 GradeFilter", "note": "グレードレース実績の高勝率狙い"},
+        "BankSpec":   {"color": "#e67e22", "label": "🏟 BankSpec",  "note": "その競輪場に強い選手狙い"},
+        "ValueHunt":  {"color": "#f39c12", "label": "🎯 ValueHunt", "note": "ラインの前方にいる穴馬狙い"},
+    }
+
+    # 全推奨件数（picks単位）
+    total_picks = sum(len(r["picks"]) for r in races_upcoming)
+    st.markdown(f"### 本日の推奨　{total_picks} 件")
 
     for r in races_upcoming:
-        pick     = r["picks"][0]
+      for pick in r["picks"]:
         btype    = pick["bet_type"]
         bet_name = "2車複" if btype == "NISHAFUKU" else "ワイド"
         ev_mark  = pick.get("ev_mark", "△")
@@ -389,6 +401,8 @@ if page == "🏠 今日の買い目":
         aite     = pick.get("aite", "")
         n_combos = pick.get("n_combos", "?")
         total_yen = pick.get("total_yen", "?")
+        strategy  = pick.get("strategy", "")
+        strat_info = _STRATEGY_STYLE.get(strategy, {"color": "#888", "label": strategy, "note": ""})
 
         if ev_mark == "◎":
             bd, bg, label = "#2ecc71", "#e8f5e9", "◎ 買い推奨"
@@ -428,9 +442,16 @@ if page == "🏠 今日の買い目":
         if bank:
             meta_parts.append(f'<span style="color:#777;font-size:0.85em">バンク{bank}m</span>')
 
+        strat_badge = (
+            f'<span style="background:{strat_info["color"]};color:#fff;'
+            f'padding:3px 12px;border-radius:12px;font-size:0.85em;font-weight:bold;margin-right:8px">'
+            f'{strat_info["label"]}</span>'
+            f'<span style="color:#888;font-size:0.8em">{strat_info["note"]}</span>'
+        )
         st.markdown(
             f"""
 <div style="border:2px solid {bd};border-radius:10px;padding:16px 20px;margin-bottom:16px">
+  <div style="margin-bottom:8px">{strat_badge}</div>
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
     <div style="font-size:1.2em;font-weight:bold">
       {"　".join(meta_parts[:2])}&nbsp;{"　".join(meta_parts[2:])}
