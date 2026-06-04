@@ -1041,6 +1041,18 @@ elif page == "⚙️ ツール":
     with t1:
         st.subheader("戦略バックテスト成績")
         st.caption("⚠️ 回収率は軸1車 全流しコスト（頭数−1点）込みの実態値。100%超 = 利益あり。")
+
+        if st.button("🔄 最適化を実行（全戦略・300試行）", type="primary"):
+            with st.spinner("最適化中… 数分かかります"):
+                try:
+                    import sys
+                    sys.path.insert(0, str(BASE_DIR))
+                    from main import cmd_optimize
+                    cmd_optimize(n_trials=300)
+                    st.success("✅ 最適化完了！ページをリロードすると結果が反映されます。")
+                except Exception as e:
+                    st.error(f"エラー: {e}")
+
         opt_results = parse_optimize_log()
         if opt_results:
             df_opt = pd.DataFrame(opt_results)
