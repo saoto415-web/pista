@@ -562,7 +562,8 @@ elif page == "📋 戦略一覧":
     for s in strategies_data:
         name = s["name"]
         info = STRATEGY_INFO.get(name, {})
-        bet  = "2車複" if s.get("bet_type", "").lower() == "nishafuku" else "ワイド"
+        _bt_map = {"nishafuku": "2車複", "wide": "ワイド", "sanrentan": "三連単", "sanrenfuku": "三連複", "tansho": "単勝", "fukusho": "複勝"}
+        bet  = _bt_map.get(s.get("bet_type", "").lower(), s.get("bet_type", ""))
         hr   = s.get("hit_rate")
         ap   = s.get("avg_payout")
         ev   = round(hr * ap) if (hr and ap) else None
