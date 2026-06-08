@@ -121,20 +121,38 @@ def cmd_optimize(n_trials: int):
     report = generate_backtest_report(results)
     print("\n" + report)
 
-    # DBにレポートを保存（Streamlitから参照できるように）
+    # DBにレポートと構造化結果を保存（Streamlitから参照できるように）
     try:
         import db as _db
+        import json as _json
         from datetime import datetime as _dt
         conn = _db.get_connection()
         c    = _db.get_cursor(conn)
         now  = _dt.now().isoformat()
+
+        # 構造化結果JSON（正規表現パース不要）
+        results_json = _json.dumps([
+            {
+                "strategy":   r.strategy.name,
+                "bet_type":   r.strategy.bet_type,
+                "total_bets": r.test_backtest.total_bets if r.test_backtest else 0,
+                "hits":       r.test_backtest.hits if r.test_backtest else 0,
+                "hit_rate":   round(r.test_backtest.hit_rate * 100, 1) if r.test_backtest else 0,
+                "avg_cost":   round(r.test_backtest.avg_cost, 0) if r.test_backtest else 0,
+                "recovery":   round(r.test_backtest.recovery_rate * 100, 1) if r.test_backtest else 0,
+                "roi":        round(r.test_backtest.roi * 100, 1) if r.test_backtest else 0,
+                "live_ready": r.live_ready,
+            }
+            for r in results if r.test_backtest
+        ], ensure_ascii=False)
+
         c.execute(_db.sql("""
-            INSERT OR IGNORE INTO optimize_cache (id, report, updated_at) VALUES (?,?,?)
-        """), ("latest", report, now))
+            INSERT OR IGNORE INTO optimize_cache (id, report, results_json, updated_at) VALUES (?,?,?,?)
+        """), ("latest", report, results_json, now))
         if c.rowcount == 0:
             c.execute(_db.sql(
-                "UPDATE optimize_cache SET report=?, updated_at=? WHERE id=?"
-            ), (report, now, "latest"))
+                "UPDATE optimize_cache SET report=?, results_json=?, updated_at=? WHERE id=?"
+            ), (report, results_json, now, "latest"))
         conn.commit()
         conn.close()
         logger.info("optimize_cache 保存完了")

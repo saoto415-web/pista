@@ -280,11 +280,17 @@ def init_db():
 
     c.execute(f"""
         CREATE TABLE IF NOT EXISTS optimize_cache (
-            id         TEXT PRIMARY KEY,
-            report     TEXT,
-            updated_at TEXT
+            id           TEXT PRIMARY KEY,
+            report       TEXT,
+            results_json TEXT,
+            updated_at   TEXT
         )
     """)
+    # results_json カラムが存在しない旧DBに追加
+    try:
+        c.execute("ALTER TABLE optimize_cache ADD COLUMN results_json TEXT")
+    except Exception:
+        pass
 
     # 一意制約インデックス（重複防止）
     try:

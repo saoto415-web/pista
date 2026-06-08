@@ -134,15 +134,47 @@ def load_optimize_report() -> str | None:
         return None
 
 
+def load_optimize_results() -> list[dict]:
+    """optimize_cache の results_json を読んで構造化リストを返す（正規表現不要）"""
+    try:
+        conn = _db.get_connection()
+        c    = _db.get_cursor(conn)
+        c.execute(_db.sql("SELECT results_json FROM optimize_cache WHERE id = ?"), ("latest",))
+        row = c.fetchone()
+        conn.close()
+        if row:
+            val = dict(row).get("results_json")
+            if val:
+                import json as _json
+                raw = _json.loads(val)
+                return [
+                    {
+                        "戦略":       r["strategy"],
+                        "賭回数":     r["total_bets"],
+                        "的中数":     r["hits"],
+                        "的中率":     r["hit_rate"],
+                        "平均コスト": r.get("avg_cost"),
+                        "回収率":     r["recovery"],
+                        "収益率":     r["roi"],
+                        "採用":       r["live_ready"],
+                    }
+                    for r in raw
+                ]
+    except Exception:
+        pass
+    return []
+
+
 def parse_optimize_log() -> list[dict]:
+    """後方互換: results_json があればそちらを優先、なければテキストパース"""
+    results = load_optimize_results()
+    if results:
+        return results
+    # フォールバック: テキストレポートを正規表現でパース
     text = load_optimize_report()
     if not text:
-        log_path = BASE_DIR / "logs" / "optimize.log"
-        if not log_path.exists():
-            return []
-        text = log_path.read_text(encoding="utf-8")
+        return []
     results = []
-    # 戦略名は [FormPeak] or [FormPeak[line]] の両形式に対応
     pattern = re.compile(
         r"テスト: \[([^\[\]]+(?:\[[^\]]*\])?)\] 賭:(\d+)回 的中:(\d+)回\(([0-9.]+)%\)"
         r"(?:\s*平均コスト:([0-9.]+)円)?"
@@ -152,7 +184,6 @@ def parse_optimize_log() -> list[dict]:
         r"\s*([✅❌])"
     )
     for m in pattern.finditer(text):
-        # "[line]" サフィックスを除いた表示名
         raw_name = m.group(1)
         display_name = re.sub(r'\[.*?\]$', '', raw_name)
         results.append({
