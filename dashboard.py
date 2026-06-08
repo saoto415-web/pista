@@ -142,18 +142,21 @@ def parse_optimize_log() -> list[dict]:
             return []
         text = log_path.read_text(encoding="utf-8")
     results = []
-    # 新形式（流しコスト込み）と旧形式の両方に対応
+    # 戦略名は [FormPeak] or [FormPeak[line]] の両形式に対応
     pattern = re.compile(
-        r"テスト: \[(\w+)\] 賭:(\d+)回 的中:(\d+)回\(([0-9.]+)%\)"
-        r"(?:\s*平均コスト:([0-9.]+)円)?"          # 新形式: 平均コスト（任意）
+        r"テスト: \[([^\[\]]+(?:\[[^\]]*\])?)\] 賭:(\d+)回 的中:(\d+)回\(([0-9.]+)%\)"
+        r"(?:\s*平均コスト:([0-9.]+)円)?"
         r"\s*回収率:([0-9.]+)%"
-        r"(?:（流しコスト込み）)?"                   # 新形式: ラベル（任意）
+        r"(?:（流しコスト込み）)?"
         r"\s*ROI:([+\-][0-9.]+)%"
         r"\s*([✅❌])"
     )
     for m in pattern.finditer(text):
+        # "[line]" サフィックスを除いた表示名
+        raw_name = m.group(1)
+        display_name = re.sub(r'\[.*?\]$', '', raw_name)
         results.append({
-            "戦略":       m.group(1),
+            "戦略":       display_name,
             "賭回数":     int(m.group(2)),
             "的中数":     int(m.group(3)),
             "的中率":     float(m.group(4)),
@@ -1043,16 +1046,19 @@ elif page == "⚙️ ツール":
         st.subheader("戦略バックテスト成績")
         st.caption("⚠️ 回収率は軸1車 全流しコスト（頭数−1点）込みの実態値。100%超 = 利益あり。")
 
-        if st.button("🔄 最適化を実行（全戦略・300試行）", type="primary"):
-            with st.spinner("最適化中… 数分かかります"):
+        if st.button("🔄 最適化を実行（全戦略・100試行）", type="primary"):
+            with st.spinner("最適化中… 数分かかります（完了後にリロードしてください）"):
                 try:
                     import sys
                     sys.path.insert(0, str(BASE_DIR))
                     from main import cmd_optimize
-                    cmd_optimize(n_trials=300)
+                    cmd_optimize(n_trials=100)
                     st.success("✅ 最適化完了！ページをリロードすると結果が反映されます。")
+                    st.rerun()
                 except Exception as e:
+                    import traceback
                     st.error(f"エラー: {e}")
+                    st.code(traceback.format_exc())
 
         opt_results = parse_optimize_log()
         if opt_results:
