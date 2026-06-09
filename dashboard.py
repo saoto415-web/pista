@@ -227,10 +227,35 @@ def parse_picks_report(text: str) -> list[dict]:
         tm2 = re.search(r"合計: (\d+)円（1点100円）", line)
         if tm2 and current["picks"]:
             current["picks"][-1]["total_yen"] = int(tm2.group(1))
+        # 2車複・ワイドの相手
         sm = re.search(r"相手: (.+?)車（全(\d+)点）", line)
         if sm and current["picks"]:
-            current["picks"][-1]["aite"]    = sm.group(1)
+            current["picks"][-1]["aite"]     = sm.group(1)
             current["picks"][-1]["n_combos"] = int(sm.group(2))
+        # 三連単: 3着流し
+        sm3 = re.search(r"3着流し: (.+?)車（全(\d+)点）", line)
+        if sm3 and current["picks"]:
+            current["picks"][-1]["buy_detail"] = f"3着流し: {sm3.group(1)}車"
+            current["picks"][-1]["n_combos"]   = int(sm3.group(2))
+        # 三連複: 相手（2軸用）
+        sm3f = re.search(r"相手: (.+?)車（全(\d+)点）", line)
+        if sm3f and current["picks"] and current["picks"][-1].get("bet_type","").upper() in ("SANRENFUKU","SANRENTAN"):
+            current["picks"][-1]["buy_detail"] = f"相手: {sm3f.group(1)}車"
+            current["picks"][-1]["n_combos"]   = int(sm3f.group(2))
+        # 2軸情報
+        jiku2m = re.search(r"軸1: (\d+)車　軸2: (\d+)車", line)
+        if jiku2m and current["picks"]:
+            current["picks"][-1]["jiku2"] = jiku2m.group(2)
+        # 三連単: 1着固定の2・3着順列
+        perm_m = re.search(r"2・3着 : (.+?)車の順列（(\d+)点）", line)
+        if perm_m and current["picks"]:
+            current["picks"][-1]["buy_detail"] = f"2・3着: {perm_m.group(1)}車の順列"
+            current["picks"][-1]["n_combos"]   = int(perm_m.group(2))
+        # 三連複: 相手から2車選択
+        comb_m = re.search(r"相手: (.+?)車から2車選択（(\d+)点）", line)
+        if comb_m and current["picks"]:
+            current["picks"][-1]["buy_detail"] = f"相手: {comb_m.group(1)}車から2車選択"
+            current["picks"][-1]["n_combos"]   = int(comb_m.group(2))
     if current:
         races.append(current)
     return [r for r in races if r["picks"]]
@@ -476,14 +501,20 @@ if page == "🏠 今日の買い目":
     for r in races_upcoming:
       for pick in r["picks"]:
         btype    = pick["bet_type"]
-        bet_name = "2車複" if btype == "NISHAFUKU" else "ワイド"
-        ev_mark  = pick.get("ev_mark", "△")
-        ev_desc  = pick.get("ev_desc", "")
-        aite     = pick.get("aite", "")
-        n_combos = pick.get("n_combos", "?")
+        _BET_NAME_MAP = {
+            "NISHAFUKU": "2車複", "WIDE": "ワイド",
+            "SANRENTAN": "三連単", "SANRENFUKU": "三連複",
+        }
+        bet_name  = _BET_NAME_MAP.get(btype.upper(), btype)
+        ev_mark   = pick.get("ev_mark", "△")
+        ev_desc   = pick.get("ev_desc", "")
+        n_combos  = pick.get("n_combos", "?")
         total_yen = pick.get("total_yen", "?")
         strategy  = pick.get("strategy", "")
         strat_info = _STRATEGY_STYLE.get(strategy, {"color": "#888", "label": strategy, "note": ""})
+        # 買い方テキスト（三連単・三連複対応）
+        buy_detail = pick.get("buy_detail", "")
+        aite       = pick.get("aite", "")
 
         if ev_mark == "◎":
             bd, bg, label = "#2ecc71", "#e8f5e9", "◎ 買い推奨"
@@ -545,7 +576,7 @@ if page == "🏠 今日の買い目":
     <div style="font-size:1.05em;margin-bottom:8px">
       <b>① 「{bet_name}」を選択</b><br>
       <b>② 軸：{pick['car']}車　{pick['name']}</b> を選択<br>
-      <b>③ 相手：{aite}車</b>　をすべて選択<br>
+      {f"<b>③ {buy_detail}</b><br>" if buy_detail else (f"<b>③ 相手：{aite}車</b>　をすべて選択<br>" if aite else "")}
       <b>④ 全 {n_combos}点 × 100円 ＝ 合計 {total_yen}円</b>
     </div>
     <div style="color:#666;font-size:0.85em">

@@ -45,6 +45,7 @@ def save_live_strategies(live_strategies):
         {
             "name":       s.name,
             "bet_type":   s.bet_type,
+            "buy_mode":   getattr(s, "buy_mode", ""),
             "params":     s.params,
             "hit_rate":   getattr(s, "hit_rate", None),
             "avg_payout": getattr(s, "avg_payout", None),
@@ -65,6 +66,7 @@ def load_live_strategies():
                 name=d["name"], bet_type=d["bet_type"], params=d["params"],
                 hit_rate=d.get("hit_rate"),
                 avg_payout=d.get("avg_payout"),
+                buy_mode=d.get("buy_mode", ""),
             )
             for d in data
         ]
@@ -173,6 +175,7 @@ def cmd_optimize(n_trials: int):
                 s = _SC(
                     name=br.strategy_name,
                     bet_type=br.bet_type,
+                    buy_mode=br.buy_mode,
                     params=r.strategy.params,
                     hit_rate=round(br.test_bt.hit_rate, 3),
                     avg_payout=round(br.test_bt.total_return / br.test_bt.hits)

@@ -99,6 +99,10 @@ def generate_picks_report(
     avg_payout_map: dict[str, float | None] = {
         s.name: getattr(s, "avg_payout", None) for s in live_strategies
     }
+    # (strategy_name, bet_type) → buy_mode
+    buy_mode_map: dict[tuple, str] = {
+        (s.name, s.bet_type): getattr(s, "buy_mode", "") for s in live_strategies
+    }
 
     races = group_by_race(entry_features)
     picks_found = False
@@ -159,22 +163,108 @@ def generate_picks_report(
                 f"← {sig.strategy}"
             )
             lines.append(f"       {ev_desc}")
-            # 具体的な買い方（ライン内流し優先、ライン情報なければ全流し）
-            axis = sig.car_no
-            line_partners = sorted(sig.line_partner_cars) if sig.line_partner_cars else []
-            if line_partners:
-                others     = line_partners
-                mode_label = "ライン内流し"
+            # 買い方を buy_mode に応じて生成
+            axis         = sig.car_no
+            line_p       = sorted(sig.line_partner_cars) if sig.line_partner_cars else []
+            others_all   = [c for c in all_cars if c != axis]
+            buy_mode     = buy_mode_map.get((sig.strategy, sig.bet_type), "")
+            bt           = sig.bet_type.lower()
+
+            _BET_NAMES = {
+                "sanrentan": "三連単", "sanrenfuku": "三連複",
+                "nishafuku": "2車複",  "wide": "ワイド",
+            }
+            bet_name = _BET_NAMES.get(bt, bt.upper())
+
+            if bt == "sanrentan":
+                if buy_mode in ("san_2fix_full", "san_2fix_line"):
+                    # 1・2着固定: axis=1着, ライン番手=2着, 残り=3着
+                    jiku2 = line_p[0] if line_p else None
+                    thirds = [c for c in all_cars if c != axis and c != jiku2] if jiku2 else others_all
+                    if jiku2:
+                        lines.append(f"    ┌─【買い方】{bet_name} 1・2着固定ライン内流し")
+                        lines.append(f"    │  1着固定: {axis}車")
+                        lines.append(f"    │  2着固定: {jiku2}車（ライン番手）")
+                        thirds_str = "・".join(str(c) for c in thirds)
+                        lines.append(f"    │  3着流し: {thirds_str}車（全{len(thirds)}点）")
+                    else:
+                        lines.append(f"    ┌─【買い方】{bet_name} 1着固定全流し")
+                        lines.append(f"    │  1着固定: {axis}車")
+                        others_str = "・".join(str(c) for c in others_all)
+                        lines.append(f"    │  2・3着 : {others_str}車")
+                        thirds = others_all
+                    n_combos = len(thirds)
+                elif buy_mode in ("san_1fix_full", "san_1fix_line"):
+                    # 1着固定: axis=1着, ライン内（or 全員）の順列で2・3着
+                    aite = line_p if (buy_mode == "san_1fix_line" and line_p) else others_all
+                    import itertools as _it
+                    combos = list(_it.permutations(aite, 2))
+                    n_combos = len(combos)
+                    mode_lbl = "ライン内" if (buy_mode == "san_1fix_line" and line_p) else "全流し"
+                    aite_str = "・".join(str(c) for c in aite)
+                    lines.append(f"    ┌─【買い方】{bet_name} 1着固定{mode_lbl}流し")
+                    lines.append(f"    │  1着固定: {axis}車")
+                    lines.append(f"    │  2・3着 : {aite_str}車の順列（{n_combos}点）")
+                else:
+                    # デフォルト: 1着固定全流し
+                    import itertools as _it
+                    combos = list(_it.permutations(others_all, 2))
+                    n_combos = len(combos)
+                    lines.append(f"    ┌─【買い方】{bet_name} 1着固定全流し")
+                    lines.append(f"    │  1着固定: {axis}車")
+                    others_str = "・".join(str(c) for c in others_all)
+                    lines.append(f"    │  2・3着 : {others_str}車の順列（{n_combos}点）")
+
+            elif bt == "sanrenfuku":
+                if buy_mode in ("sf_2jiku_full", "sf_2jiku_line"):
+                    # 2軸: axis + ライン番手, 相手=残り全員
+                    jiku2 = line_p[0] if line_p else None
+                    thirds = [c for c in all_cars if c != axis and c != jiku2] if jiku2 else others_all
+                    if jiku2:
+                        lines.append(f"    ┌─【買い方】{bet_name} 2軸ライン内流し")
+                        lines.append(f"    │  軸1: {axis}車　軸2: {jiku2}車（ライン番手）")
+                        thirds_str = "・".join(str(c) for c in thirds)
+                        lines.append(f"    │  相手: {thirds_str}車（全{len(thirds)}点）")
+                    else:
+                        lines.append(f"    ┌─【買い方】{bet_name} 1軸全流し")
+                        lines.append(f"    │  軸  : {axis}車")
+                        import itertools as _it2
+                        thirds = list(_it2.combinations(others_all, 2))
+                        others_str = "・".join(str(c) for c in others_all)
+                        lines.append(f"    │  相手: {others_str}車（{len(thirds)}点）")
+                    n_combos = len(thirds)
+                elif buy_mode in ("sf_1jiku_full", "sf_1jiku_line"):
+                    aite = line_p if (buy_mode == "sf_1jiku_line" and line_p) else others_all
+                    import itertools as _it3
+                    combos = list(_it3.combinations(aite, 2))
+                    n_combos = len(combos)
+                    mode_lbl = "ライン内" if (buy_mode == "sf_1jiku_line" and line_p) else "全流し"
+                    aite_str = "・".join(str(c) for c in aite)
+                    lines.append(f"    ┌─【買い方】{bet_name} 1軸{mode_lbl}流し")
+                    lines.append(f"    │  軸  : {axis}車")
+                    lines.append(f"    │  相手: {aite_str}車から2車選択（{n_combos}点）")
+                else:
+                    import itertools as _it4
+                    combos = list(_it4.combinations(others_all, 2))
+                    n_combos = len(combos)
+                    others_str = "・".join(str(c) for c in others_all)
+                    lines.append(f"    ┌─【買い方】{bet_name} 1軸全流し")
+                    lines.append(f"    │  軸  : {axis}車")
+                    lines.append(f"    │  相手: {others_str}車から2車選択（{n_combos}点）")
+
             else:
-                others     = [c for c in all_cars if c != axis]
-                mode_label = "全流し"
-            others_str = "・".join(str(c) for c in others)
-            n_combos = len(others)
+                # 2車複・ワイド（旧来）
+                if line_p:
+                    others, mode_label = line_p, "ライン内流し"
+                else:
+                    others, mode_label = others_all, "全流し"
+                others_str = "・".join(str(c) for c in others)
+                n_combos = len(others)
+                lines.append(f"    ┌─【買い方】{bet_name} 軸1頭{mode_label}")
+                lines.append(f"    │  軸  : {axis}車")
+                lines.append(f"    │  相手: {others_str}車（全{n_combos}点）")
+
             total = n_combos * 100
-            bet_name = "2車複" if sig.bet_type.lower() == "nishafuku" else "ワイド"
-            lines.append(f"    ┌─【買い方】{bet_name} 軸1頭{mode_label}")
-            lines.append(f"    │  軸  : {axis}車")
-            lines.append(f"    │  相手: {others_str}車（全{n_combos}点）")
             lines.append(f"    └─ 合計: {total}円（1点100円）")
         lines.append("")
         picks_found = True

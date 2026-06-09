@@ -18,10 +18,11 @@ from dataclasses import dataclass, field
 @dataclass
 class StrategyConfig:
     name:     str
-    bet_type: str          # "tansho" / "fukusho" / "nishafuku" / "sanrenfuku"
+    bet_type: str          # "nishafuku" / "wide" / "sanrentan" / "sanrenfuku" etc.
     params:   dict = field(default_factory=dict)
     hit_rate:   float | None = None  # バックテスト的中率（EV計算用）
     avg_payout: float | None = None  # 過去平均払戻額（暫定EV推計用）
+    buy_mode:   str = ""             # "san_2fix_line" / "sf_2jiku_line" etc.
 
     def default_params(self) -> dict:
         defaults = {
