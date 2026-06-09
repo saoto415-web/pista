@@ -41,23 +41,28 @@ BET_UNIT = 100
 
 # ── 信頼度 ─────────────────────────────────────────────────
 
-def confidence_level(n_bets: int) -> str:
+def confidence_level(n_bets: int, recovery_rate: float = 0.0) -> str:
+    """サンプル数と回収率を組み合わせたステータス。
+    🟢/✅ は黒字(回収率100%+)のときのみ表示し、赤字は ⚫ で区別する。
+    """
     if n_bets < 50:
         return "🔴 試行中"
     elif n_bets < 200:
         return "🟡 参考値"
     elif n_bets < 1000:
-        return "🟢 信頼可能"
+        # 200〜999件: 収益性で分岐
+        return "🟢 黒字確認" if recovery_rate >= 1.0 else "⚫ 赤字確認"
     else:
-        return "✅ 採用候補"
+        # 1000件以上: 採用候補 or 赤字確認
+        return "✅ 採用候補" if recovery_rate >= 1.0 else "⚫ 赤字確認"
 
 
-def confidence_order(n_bets: int) -> int:
-    """ソート用の数値（大きいほど信頼度高）"""
-    if n_bets < 50:    return 0
-    elif n_bets < 200: return 1
-    elif n_bets < 1000: return 2
-    else:               return 3
+def confidence_order(n_bets: int, recovery_rate: float = 0.0) -> int:
+    """ソート用の数値（大きいほど優先）"""
+    if n_bets < 50:     return 0
+    elif n_bets < 200:  return 1
+    elif n_bets < 1000: return 3 if recovery_rate >= 1.0 else 2
+    else:               return 4 if recovery_rate >= 1.0 else 2
 
 
 # ── 採用基準 ────────────────────────────────────────────────
@@ -98,7 +103,7 @@ class BacktestResult:
 
     @property
     def confidence(self) -> str:
-        return confidence_level(self.total_bets)
+        return confidence_level(self.total_bets, self.recovery_rate)
 
     def summary(self) -> str:
         return (

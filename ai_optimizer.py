@@ -117,7 +117,7 @@ class BuyModeResult:
 
     @property
     def confidence(self) -> str:
-        return confidence_level(self.test_bt.total_bets)
+        return confidence_level(self.test_bt.total_bets, self.test_bt.recovery_rate)
 
     def summary(self) -> str:
         tag = "✅" if self.live_ready else "❌"
