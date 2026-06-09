@@ -1089,19 +1089,17 @@ elif page == "⚙️ ツール":
         st.subheader("戦略バックテスト成績")
         st.caption("回収率100%超 = 利益あり。✅採用候補 = 1000件以上かつ回収率100%以上。")
 
-        if st.button("🔄 最適化を実行（全戦略・100試行）", type="primary"):
-            with st.spinner("最適化中… 数分かかります（完了後にリロードしてください）"):
-                try:
-                    import sys
-                    sys.path.insert(0, str(BASE_DIR))
-                    from main import cmd_optimize
-                    cmd_optimize(n_trials=100)
-                    st.success("✅ 最適化完了！")
-                    st.rerun()
-                except Exception as e:
-                    import traceback
-                    st.error(f"エラー: {e}")
-                    st.code(traceback.format_exc())
+        col_btn, col_info = st.columns([1, 3])
+        with col_btn:
+            if st.button("🔄 結果を再読み込み", type="primary"):
+                st.cache_data.clear()
+                st.rerun()
+        with col_info:
+            _opt_report = load_optimize_report()
+            if _opt_report:
+                st.info(f"📊 {_opt_report}")
+            else:
+                st.warning("最適化未実行 — GitHub Actions（毎週日曜深夜）か `python main.py --optimize` で実行してください")
 
         _BT_LABEL2 = {
             "nishafuku": "2車複", "wide": "ワイド",

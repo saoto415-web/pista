@@ -5,6 +5,7 @@ on:
     - cron: '30 21 * * *'   # 毎日 06:30 JST (朝フェッチ: 前日〜7日前の結果取得・照合)
     - cron: '0 1 * * *'     # 毎日 10:00 JST (picks)
     - cron: '0 14 * * *'    # 毎日 23:00 JST (夕方フェッチ: レース終了後に結果取得・照合)
+    - cron: '0 15 * * 0'    # 毎週日曜 00:00 JST (週次最適化)
   workflow_dispatch:         # 手動実行ボタン
 
 jobs:
@@ -55,9 +56,11 @@ jobs:
       - run: python main.py --picks
 
   optimize:
-    name: バックテスト最適化 (--optimize)
+    name: バックテスト最適化 (--optimize, 週次 + 手動)
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.schedule == '0 15 * * 0'
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
@@ -66,4 +69,4 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install -r requirements.txt
-      - run: python main.py --optimize --trials 50
+      - run: python main.py --optimize --trials 200
