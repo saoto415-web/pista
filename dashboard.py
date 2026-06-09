@@ -1095,11 +1095,14 @@ elif page == "⚙️ ツール":
                 st.cache_data.clear()
                 st.rerun()
         with col_info:
-            _opt_report = load_optimize_report()
-            if _opt_report:
-                st.info(f"📊 {_opt_report}")
+            matrix_check = load_optimize_results()
+            if matrix_check:
+                # results_json がある場合は最終更新日時を表示
+                _opt_report = load_optimize_report()
+                first_line = (_opt_report or "").splitlines()[0] if _opt_report else ""
+                st.success(f"✅ {first_line}" if first_line else "✅ マトリクスデータ読み込み済み")
             else:
-                st.warning("最適化未実行 — GitHub Actions（毎週日曜深夜）か `python main.py --optimize` で実行してください")
+                st.warning("⚠️ 最適化をまだ実行していません。`python main.py --optimize` をローカルで実行してください（毎週日曜深夜にGitHub Actionsでも自動実行）")
 
         _BT_LABEL2 = {
             "nishafuku": "2車複", "wide": "ワイド",
