@@ -134,8 +134,21 @@ def load_optimize_report() -> str | None:
         return None
 
 
+def _recompute_confidence(total_bets: int, recovery: float) -> str:
+    """信頼度をサンプル数＋収益性から再計算（DBの古い文字列に依存しない）"""
+    profitable = recovery >= 100.0
+    if total_bets < 50:
+        return "🔴 試行中"
+    elif total_bets < 200:
+        return "🟡 参考値"
+    elif total_bets < 1000:
+        return "🟢 黒字確認" if profitable else "⚫ 赤字確認"
+    else:
+        return "✅ 採用候補" if profitable else "⚫ 赤字確認"
+
+
 def load_optimize_results() -> list[dict]:
-    """optimize_cache の results_json を読んで全フィールドを返す"""
+    """optimize_cache の results_json を読んで全フィールドを返す（信頼度は動的再計算）"""
     try:
         conn = _db.get_connection()
         c    = _db.get_cursor(conn)
@@ -146,7 +159,12 @@ def load_optimize_results() -> list[dict]:
             val = dict(row).get("results_json")
             if val:
                 import json as _json
-                return _json.loads(val)
+                rows = _json.loads(val)
+                for r in rows:
+                    r["confidence"] = _recompute_confidence(
+                        r.get("total_bets", 0), r.get("recovery", 0.0)
+                    )
+                return rows
     except Exception:
         pass
     return []
