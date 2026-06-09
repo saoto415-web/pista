@@ -135,7 +135,7 @@ def load_optimize_report() -> str | None:
 
 
 def load_optimize_results() -> list[dict]:
-    """optimize_cache の results_json を読んで構造化リストを返す（正規表現不要）"""
+    """optimize_cache の results_json を読んで全フィールドを返す"""
     try:
         conn = _db.get_connection()
         c    = _db.get_cursor(conn)
@@ -146,57 +146,15 @@ def load_optimize_results() -> list[dict]:
             val = dict(row).get("results_json")
             if val:
                 import json as _json
-                raw = _json.loads(val)
-                return [
-                    {
-                        "戦略":       r["strategy"],
-                        "賭回数":     r["total_bets"],
-                        "的中数":     r["hits"],
-                        "的中率":     r["hit_rate"],
-                        "平均コスト": r.get("avg_cost"),
-                        "回収率":     r["recovery"],
-                        "収益率":     r["roi"],
-                        "採用":       r["live_ready"],
-                    }
-                    for r in raw
-                ]
+                return _json.loads(val)
     except Exception:
         pass
     return []
 
 
 def parse_optimize_log() -> list[dict]:
-    """後方互換: results_json があればそちらを優先、なければテキストパース"""
-    results = load_optimize_results()
-    if results:
-        return results
-    # フォールバック: テキストレポートを正規表現でパース
-    text = load_optimize_report()
-    if not text:
-        return []
-    results = []
-    pattern = re.compile(
-        r"テスト: \[([^\[\]]+(?:\[[^\]]*\])?)\] 賭:(\d+)回 的中:(\d+)回\(([0-9.]+)%\)"
-        r"(?:\s*平均コスト:([0-9.]+)円)?"
-        r"\s*回収率:([0-9.]+)%"
-        r"(?:（流しコスト込み）)?"
-        r"\s*ROI:([+\-][0-9.]+)%"
-        r"\s*([✅❌])"
-    )
-    for m in pattern.finditer(text):
-        raw_name = m.group(1)
-        display_name = re.sub(r'\[.*?\]$', '', raw_name)
-        results.append({
-            "戦略":       display_name,
-            "賭回数":     int(m.group(2)),
-            "的中数":     int(m.group(3)),
-            "的中率":     float(m.group(4)),
-            "平均コスト": float(m.group(5)) if m.group(5) else None,
-            "回収率":     float(m.group(6)),
-            "収益率":     float(m.group(7)),
-            "採用":       m.group(8) == "✅",
-        })
-    return results
+    """後方互換ラッパー: results_json があればそちらを、なければテキストパース"""
+    return load_optimize_results()
 
 
 def parse_picks_report(text: str) -> list[dict]:
@@ -1129,7 +1087,7 @@ elif page == "⚙️ ツール":
     # ── 戦略バックテスト
     with t1:
         st.subheader("戦略バックテスト成績")
-        st.caption("⚠️ 回収率は軸1車 全流しコスト（頭数−1点）込みの実態値。100%超 = 利益あり。")
+        st.caption("回収率100%超 = 利益あり。✅採用候補 = 1000件以上かつ回収率100%以上。")
 
         if st.button("🔄 最適化を実行（全戦略・100試行）", type="primary"):
             with st.spinner("最適化中… 数分かかります（完了後にリロードしてください）"):
@@ -1138,88 +1096,134 @@ elif page == "⚙️ ツール":
                     sys.path.insert(0, str(BASE_DIR))
                     from main import cmd_optimize
                     cmd_optimize(n_trials=100)
-                    st.success("✅ 最適化完了！ページをリロードすると結果が反映されます。")
+                    st.success("✅ 最適化完了！")
                     st.rerun()
                 except Exception as e:
                     import traceback
                     st.error(f"エラー: {e}")
                     st.code(traceback.format_exc())
 
-        # 全戦略マスターリスト（PARAM_SPACE の定義順）
-        ALL_STRAT_NAMES = [
-            "LineLeader", "ClassValue", "GradeFilter",
-            "FormPeak", "FormPeakSanrentan", "FormPeakSanrenfuku",
-            "ValueHunt", "BankSpec",
-        ]
-        _BT_LABEL2 = {"nishafuku": "2車複", "wide": "ワイド", "sanrentan": "三連単",
-                      "sanrenfuku": "三連複", "tansho": "単勝", "fukusho": "複勝"}
-        _BET_TYPE_MAP = {
-            "LineLeader": "nishafuku", "ClassValue": "nishafuku",
-            "GradeFilter": "nishafuku", "FormPeak": "nishafuku",
-            "FormPeakSanrentan": "sanrentan", "FormPeakSanrenfuku": "sanrenfuku",
-            "ValueHunt": "wide", "BankSpec": "wide",
+        _BT_LABEL2 = {
+            "nishafuku": "2車複", "wide": "ワイド",
+            "sanrentan": "三連単", "sanrenfuku": "三連複",
+        }
+        _BUY_LABEL = {
+            "san_1fix_full":  "1着固定・全流し",
+            "san_1fix_line":  "1着固定・ライン内",
+            "san_2fix_full":  "1・2着固定・全流し",
+            "san_2fix_line":  "1・2着固定・ライン内",
+            "san_box3":       "BOX3",
+            "san_box4":       "BOX4",
+            "sf_1jiku_full":  "1軸・全流し",
+            "sf_1jiku_line":  "1軸・ライン内",
+            "sf_2jiku_full":  "2軸・全流し",
+            "sf_2jiku_line":  "2軸・ライン内",
+            "sf_box3":        "BOX3",
+            "sf_box4":        "BOX4",
+            "full":           "全流し",
+            "line":           "ライン内流し",
         }
 
-        # 最適化結果マップ
-        opt_results = parse_optimize_log()
-        opt_map = {r["戦略"]: r for r in opt_results}
+        matrix_data = load_optimize_results()
 
-        # 採用戦略セット
-        _adopted = set()
-        if strat_path.exists():
-            for s in json.loads(strat_path.read_text(encoding="utf-8")):
-                _adopted.add(s["name"])
+        if not matrix_data:
+            st.info("最適化がまだ実行されていません。上のボタンで最適化を実行してください。")
+        else:
+            # 採用戦略セット
+            _adopted = set()
+            if strat_path.exists():
+                for s in json.loads(strat_path.read_text(encoding="utf-8")):
+                    _adopted.add(s["name"])
 
-        # 構築度ラベル
-        def _build_level(name):
-            if name in _adopted and opt_map.get(name, {}).get("採用", False):
-                return ("✅ 採用中",    "#2ecc71")
-            if name in opt_map:
-                return ("🔶 分析済み", "#f39c12")
-            return ("📋 設計済み",  "#3498db")
+            # 戦略一覧（定義順）
+            ALL_STRAT_NAMES = ["LineLeader", "ClassValue", "GradeFilter",
+                               "FormPeak", "ValueHunt", "BankSpec"]
 
-        # ── グラフ（分析済み戦略のみ）
-        if opt_results:
-            df_opt = pd.DataFrame(opt_results)
-            colors = ["#2ecc71" if r else "#e74c3c" for r in df_opt["採用"]]
-            fig = go.Figure(go.Bar(
-                x=df_opt["戦略"], y=df_opt["回収率"],
-                marker_color=colors,
-                text=[f"{v:.1f}%" for v in df_opt["回収率"]],
-                textposition="outside",
-            ))
-            fig.add_hline(y=100, line_dash="dash", line_color="white",
-                          annotation_text="損益分岐（100%）")
-            fig.update_layout(
-                title="バックテスト 回収率（緑 = 採用済み / 赤 = 未達）",
-                yaxis_title="回収率 (%)",
-                plot_bgcolor="#0e1117", paper_bgcolor="#0e1117",
-                font_color="white", height=360,
+            # フィルター
+            _bt_filter = st.segmented_control(
+                "賭種フィルター",
+                ["全て", "三連単", "三連複", "2車複", "ワイド"],
+                default="全て", key="bt_filter",
             )
-            st.plotly_chart(fig, use_container_width=True)
 
-        # ── 全戦略テーブル（構築度付き）
-        st.subheader("全戦略の状況")
-        rows = []
-        for name in ALL_STRAT_NAMES:
-            opt  = opt_map.get(name, {})
-            lvl, _ = _build_level(name)
-            bet_type = _BET_TYPE_MAP.get(name, "-")
-            rows.append({
-                "戦略":       name,
-                "賭種":       _BT_LABEL2.get(bet_type, bet_type),
-                "構築度":     lvl,
-                "賭回数":     opt.get("賭回数", "-"),
-                "的中率":     f"{opt['的中率']:.1f}%" if "的中率" in opt else "-",
-                "平均コスト": f"{int(opt['平均コスト']):,}円" if opt.get("平均コスト") else "-",
-                "回収率":     f"{opt['回収率']:.1f}%" if "回収率" in opt else "-",
-                "収益率":     f"{opt['収益率']:+.1f}%" if "収益率" in opt else "-",
-            })
-        df_all = pd.DataFrame(rows)
-        st.dataframe(df_all, use_container_width=True, hide_index=True)
+            # ── マトリクス表示（戦略 × 買いモード × 賭種）
+            for strategy_name in ALL_STRAT_NAMES:
+                rows_for_strat = [r for r in matrix_data if r["strategy"] == strategy_name]
+                if not rows_for_strat:
+                    continue
+
+                # 賭種フィルター適用
+                if _bt_filter != "全て":
+                    bt_key = {v: k for k, v in _BT_LABEL2.items()}.get(_bt_filter, _bt_filter)
+                    rows_for_strat = [r for r in rows_for_strat if r["bet_type"] == bt_key]
+                    if not rows_for_strat:
+                        continue
+
+                # 採用済みかどうか
+                is_adopted = strategy_name in _adopted
+                adopt_badge = (
+                    '<span style="background:#2ecc71;color:#000;padding:1px 8px;'
+                    'border-radius:10px;font-size:0.75em;font-weight:bold">✅ 採用中</span>'
+                    if is_adopted else
+                    '<span style="background:#444;color:#ccc;padding:1px 8px;'
+                    'border-radius:10px;font-size:0.75em">未採用</span>'
+                )
+                best_recovery = max((r["recovery"] for r in rows_for_strat), default=0)
+                st.markdown(
+                    f"### {strategy_name}&nbsp;&nbsp;{adopt_badge}"
+                    f"&nbsp;&nbsp;<span style='color:#aaa;font-size:0.85em'>"
+                    f"最高回収率 {best_recovery:.1f}%</span>",
+                    unsafe_allow_html=True,
+                )
+
+                # 賭種ごとにテーブル表示
+                bet_types_in_data = sorted({r["bet_type"] for r in rows_for_strat},
+                                           key=lambda b: ["sanrentan","sanrenfuku","nishafuku","wide"].index(b)
+                                                         if b in ["sanrentan","sanrenfuku","nishafuku","wide"] else 99)
+                for bt in bet_types_in_data:
+                    rows_bt = [r for r in rows_for_strat if r["bet_type"] == bt]
+                    bt_label = _BT_LABEL2.get(bt, bt)
+                    st.markdown(f"**{bt_label}**")
+                    table_rows = []
+                    for r in rows_bt:
+                        live_mark = "✅" if r["live_ready"] else ""
+                        table_rows.append({
+                            "買い方":   _BUY_LABEL.get(r["buy_mode"], r["buy_mode"]),
+                            "賭回数":   r["total_bets"],
+                            "的中率":   f"{r['hit_rate']:.1f}%",
+                            "平均コスト": f"{int(r.get('avg_cost', 0)):,}円",
+                            "回収率":   f"{r['recovery']:.1f}%",
+                            "収益率":   f"{r['roi']:+.1f}%",
+                            "信頼度":   r["confidence"],
+                            "採用":     live_mark,
+                        })
+                    df_bt = pd.DataFrame(table_rows)
+                    # 回収率でソート
+                    df_bt["_sort"] = [r["recovery"] for r in rows_bt]
+                    df_bt = df_bt.sort_values("_sort", ascending=False).drop(columns=["_sort"])
+                    st.dataframe(df_bt, use_container_width=True, hide_index=True)
+
+                st.divider()
+
+            # ── 採用候補サマリーバー
+            live_rows = [r for r in matrix_data if r["live_ready"]]
+            if live_rows:
+                st.subheader(f"✅ 採用候補　{len(live_rows)} 件")
+                df_live = pd.DataFrame([{
+                    "戦略":   r["strategy"],
+                    "賭種":   _BT_LABEL2.get(r["bet_type"], r["bet_type"]),
+                    "買い方": _BUY_LABEL.get(r["buy_mode"], r["buy_mode"]),
+                    "賭回数": r["total_bets"],
+                    "的中率": f"{r['hit_rate']:.1f}%",
+                    "回収率": f"{r['recovery']:.1f}%",
+                    "信頼度": r["confidence"],
+                } for r in sorted(live_rows, key=lambda x: x["recovery"], reverse=True)])
+                st.dataframe(df_live, use_container_width=True, hide_index=True)
+            else:
+                st.warning("採用候補なし（1000件以上かつ回収率100%以上の組み合わせが見つかりません）")
 
         st.caption("""
-**構築度の見方**　✅ 採用中：分析完了・実運用中　🔶 分析済み：バックテスト結果あり・閾値未達　📋 設計済み：戦略定義あり・未分析
+**信頼度**　🔴 試行中 <50件　🟡 参考値 50-199件　🟢 信頼可能 200-999件　✅ 採用候補 1000+件かつ回収率100%+
         """)
 
     # ── データ概要

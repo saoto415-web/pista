@@ -2,23 +2,33 @@
 ai_optimizer.py  - PISTA 競輪版
 ランダムサーチで各戦略のパラメータを自動最適化する
 
+設計:
+  1. 各戦略について、PRIMARY買いモードでランダムサーチ（パラメータ最適化）
+  2. 最良パラメータで全買いモード × 全賭け種を評価
+  3. 結果を (strategy, bet_type, buy_mode) のマトリクスで保存
+
 Train/Test Split:
   - 古い70%でパラメータ最適化（学習）
   - 新しい30%で検証（テスト）
-  - live_ready 判定はテストデータの結果のみで行う（過学習防止）
+  - 信頼度・採用基準はテストデータのサンプル数で判定
 """
 
 from __future__ import annotations
 import random
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from strategy_engine import StrategyConfig
-from backtester import run_backtest, BacktestResult, is_live_ready
+from backtester import (
+    run_backtest, BacktestResult, is_live_ready,
+    BUY_MODES_FOR_BET_TYPE, confidence_level,
+)
 
 logger = logging.getLogger(__name__)
 
-# 戦略ごとのパラメータ探索空間
+
+# ── 戦略ごとのパラメータ探索空間 ─────────────────────────────
+
 PARAM_SPACE: dict[str, dict] = {
     "LineLeader": {
         "min_racer_win_rate":   [0.05, 0.08, 0.10, 0.12, 0.15],
@@ -28,11 +38,11 @@ PARAM_SPACE: dict[str, dict] = {
         "max_rival_line_class": [2.0, 3.0, 3.5, 4.0, 5.0],
     },
     "ClassValue": {
-        "min_class_score":      [3, 4, 5],
-        "min_popularity":       [2, 3, 4],
-        "max_popularity":       [6, 7, 8, 9, 10],
-        "min_line_class_edge":  [-1.0, -0.5, 0.0, 0.5, 1.0],
-        "min_line_size":        [1, 2],
+        "min_class_score":     [3, 4, 5],
+        "min_popularity":      [2, 3, 4],
+        "max_popularity":      [6, 7, 8, 9, 10],
+        "min_line_class_edge": [-1.0, -0.5, 0.0, 0.5, 1.0],
+        "min_line_size":       [1, 2],
     },
     "GradeFilter": {
         "min_grade_score":    [3, 4, 5],
@@ -46,80 +56,109 @@ PARAM_SPACE: dict[str, dict] = {
         "min_popularity":      [2, 3, 4, 5],
         "max_popularity":      [7, 8, 9, 10],
         "min_racer_win_rate":  [0.05, 0.08, 0.10, 0.12],
-        # 三連単向け追加条件
-        "min_line_size":       [1, 2, 3],    # 最低ライン人数（3=3車ライン必須）
-        "require_line_leader": [0, 1],       # 1=ライン先頭のみ対象
+        "min_line_size":       [1, 2, 3],
+        "require_line_leader": [0, 1],
     },
     "ValueHunt": {
-        "min_popularity":    [3, 4, 5, 6],
-        "max_popularity":    [8, 9, 10, 12],
-        "max_line_position": [0, 1, 2],
-        "min_racer_win_rate":[0.05, 0.08, 0.10],
-        "max_prev_finish":   [3, 4, 5, 6],
-        "min_line_size":     [1, 2],
+        "min_popularity":     [3, 4, 5, 6],
+        "max_popularity":     [8, 9, 10, 12],
+        "max_line_position":  [0, 1, 2],
+        "min_racer_win_rate": [0.05, 0.08, 0.10],
+        "max_prev_finish":    [3, 4, 5, 6],
+        "min_line_size":      [1, 2],
     },
     "BankSpec": {
-        "max_popularity":      [3, 4, 5, 6],
-        "min_venue_win_rate":  [0.08, 0.10, 0.12, 0.15, 0.20],
-        "min_class_score":     [2, 3, 4],
-        "min_racer_win_rate":  [0.05, 0.08, 0.10, 0.12],
+        "max_popularity":     [3, 4, 5, 6],
+        "min_venue_win_rate": [0.08, 0.10, 0.12, 0.15, 0.20],
+        "min_class_score":    [2, 3, 4],
+        "min_racer_win_rate": [0.05, 0.08, 0.10, 0.12],
     },
 }
 
-BET_TYPE_MAP = {
-    "LineLeader":         "nishafuku",
-    "ClassValue":         "nishafuku",
-    "GradeFilter":        "nishafuku",
-    "FormPeak":           "nishafuku",
-    "FormPeakSanrentan":  "sanrentan",   # 新戦略: FormPeak × 三連単
-    "FormPeakSanrenfuku": "sanrenfuku",  # 新戦略: FormPeak × 三連複
-    "ValueHunt":          "wide",
-    "BankSpec":           "wide",
+# パラメータ探索時に使う賭け種（全買いモード評価の基準点）
+PRIMARY_BET_TYPE: dict[str, str] = {
+    "LineLeader":  "sanrentan",
+    "ClassValue":  "sanrenfuku",
+    "GradeFilter": "sanrenfuku",
+    "FormPeak":    "sanrentan",
+    "ValueHunt":   "sanrenfuku",
+    "BankSpec":    "sanrenfuku",
 }
 
-# FormPeakSanrentan: ライン先頭の好調選手を三連単軸1着で狙う
-PARAM_SPACE["FormPeakSanrentan"] = {
-    "max_prev_finish":     [1, 2],
-    "max_days_since_last": [14, 21, 28],
-    "min_popularity":      [3, 4, 5],
-    "max_popularity":      [8, 9, 10, 12],
-    "min_racer_win_rate":  [0.05, 0.08, 0.10],
-    "min_line_size":       [1, 2, 3],
-    "require_line_leader": [1],   # 三連単なので常にライン先頭必須
+# パラメータ探索時に使う買いモード
+PRIMARY_BUY_MODE: dict[str, str] = {
+    "sanrentan":  "san_1fix_full",
+    "sanrenfuku": "sf_1jiku_full",
+    "nishafuku":  "full",
+    "wide":       "full",
 }
 
-# FormPeakSanrenfuku: 好調選手を三連複の軸として狙う（順不同なので三連単より的中しやすい）
-PARAM_SPACE["FormPeakSanrenfuku"] = {
-    "max_prev_finish":     [1, 2, 3],
-    "max_days_since_last": [7, 14, 21, 28],
-    "min_popularity":      [3, 4, 5],
-    "max_popularity":      [8, 9, 10, 12],
-    "min_racer_win_rate":  [0.05, 0.08, 0.10, 0.12],
-    "min_line_size":       [1, 2, 3],
-    "require_line_leader": [0, 1],
+# 各戦略で評価する賭け種一覧（三連単・三連複を主軸に、2車複・ワイドは比較用）
+EVAL_BET_TYPES: dict[str, list[str]] = {
+    "LineLeader":  ["sanrentan", "sanrenfuku", "nishafuku"],
+    "ClassValue":  ["sanrentan", "sanrenfuku", "nishafuku"],
+    "GradeFilter": ["sanrentan", "sanrenfuku", "nishafuku"],
+    "FormPeak":    ["sanrentan", "sanrenfuku", "nishafuku", "wide"],
+    "ValueHunt":   ["sanrentan", "sanrenfuku", "wide"],
+    "BankSpec":    ["sanrentan", "sanrenfuku", "wide"],
 }
 
-# FormPeakSanrentan/Sanrenfuku は strategy_engine でも FormPeak の条件を使う
-# （名前が "FormPeak" で始まるため _passes が同じロジックを適用）
+
+# ── 結果クラス ────────────────────────────────────────────────
+
+@dataclass
+class BuyModeResult:
+    """1つの (strategy, bet_type, buy_mode) 組み合わせの結果"""
+    strategy_name: str
+    bet_type:      str
+    buy_mode:      str
+    test_bt:       BacktestResult
+    live_ready:    bool
+
+    @property
+    def confidence(self) -> str:
+        return confidence_level(self.test_bt.total_bets)
+
+    def summary(self) -> str:
+        tag = "✅" if self.live_ready else "❌"
+        return (
+            f"{tag} [{self.strategy_name}|{self.bet_type}|{self.buy_mode}] "
+            f"賭:{self.test_bt.total_bets}回 "
+            f"的中:{self.test_bt.hits}回({self.test_bt.hit_rate*100:.1f}%) "
+            f"回収率:{self.test_bt.recovery_rate*100:.1f}% "
+            f"信頼度:{self.confidence}"
+        )
 
 
 @dataclass
 class OptimResult:
+    """1戦略の最適化結果（全買いモード × 賭け種を含む）"""
     strategy:      StrategyConfig
-    backtest:      BacktestResult
-    test_backtest: BacktestResult | None
-    live_ready:    bool
+    train_bt:      BacktestResult        # 学習データでの最良バックテスト
+    buy_results:   list[BuyModeResult] = field(default_factory=list)
+
+    @property
+    def live_ready(self) -> bool:
+        return any(r.live_ready for r in self.buy_results)
+
+    def best_result(self) -> BuyModeResult | None:
+        if not self.buy_results:
+            return None
+        return max(self.buy_results, key=lambda r: r.test_bt.recovery_rate)
 
     def summary(self) -> str:
-        tag = "✅ 実運用OK" if self.live_ready else "❌ 未達"
-        s = f"{tag}  {self.backtest.summary()}  params={self.strategy.params}"
-        if self.test_backtest:
-            s += f"\n         テスト: {self.test_backtest.summary()}"
-        return s
+        best = self.best_result()
+        if best:
+            return f"[{self.strategy.name}] 最良: {best.summary()}"
+        return f"[{self.strategy.name}] 結果なし"
 
 
-def _split_rows(enriched_rows: list[dict], train_ratio: float = 0.7) -> tuple[list[dict], list[dict]]:
-    """日付順で race_id 単位に train/test 分割"""
+# ── データ分割 ────────────────────────────────────────────────
+
+def _split_rows(
+    enriched_rows: list[dict],
+    train_ratio: float = 0.7,
+) -> tuple[list[dict], list[dict]]:
     race_dates: dict[str, str] = {}
     for row in enriched_rows:
         rid = row.get("race_id", "")
@@ -142,46 +181,60 @@ def _split_rows(enriched_rows: list[dict], train_ratio: float = 0.7) -> tuple[li
     return train_rows, test_rows
 
 
+# ── メイン最適化関数 ──────────────────────────────────────────
+
 def optimize(
     enriched_rows: list[dict],
-    n_trials: int = 300,
+    n_trials: int = 200,
     seed: int = 42,
     train_ratio: float = 0.7,
     payouts_by_race: dict | None = None,
-    buy_mode: str = "line",   # "full"=全流し / "line"=ライン内流し（デフォルト）
 ) -> list[OptimResult]:
+    """
+    各戦略のパラメータをランダムサーチで最適化し、
+    全買いモード × 賭け種の組み合わせを評価して返す。
+    """
     random.seed(seed)
     train_rows, test_rows = _split_rows(enriched_rows, train_ratio)
     logger.info(f"学習: {len(train_rows)}行 / テスト: {len(test_rows)}行")
 
-    # payouts を train/test に分割
-    train_ids = {r["race_id"] for r in train_rows}
-    test_ids  = {r["race_id"] for r in test_rows}
     pb = payouts_by_race or {}
+    train_ids     = {r["race_id"] for r in train_rows}
+    test_ids      = {r["race_id"] for r in test_rows}
     train_payouts = {k: v for k, v in pb.items() if k in train_ids}
     test_payouts  = {k: v for k, v in pb.items() if k in test_ids}
 
     results: list[OptimResult] = []
 
     for strategy_name, space in PARAM_SPACE.items():
-        logger.info(f"最適化中: {strategy_name} ({n_trials}試行)")
+        primary_bet  = PRIMARY_BET_TYPE[strategy_name]
+        primary_mode = PRIMARY_BUY_MODE[primary_bet]
+
+        logger.info(
+            f"最適化中: {strategy_name} "
+            f"({n_trials}試行 / 基準: {primary_bet}×{primary_mode})"
+        )
+
+        # ── Step1: ランダムサーチでパラメータ最適化 ──
         best_train_bt: BacktestResult | None = None
         best_strategy: StrategyConfig | None = None
 
         for _ in range(n_trials):
             params = {k: random.choice(v) for k, v in space.items()}
 
-            # min/max 整合性
-            if strategy_name in ("ClassValue", "FormPeak", "ValueHunt"):
+            if strategy_name in ("ClassValue", "FormPeak", "ValueHunt", "FormPeakSanrentan", "FormPeakSanrenfuku"):
                 if params.get("min_popularity", 0) >= params.get("max_popularity", 99):
                     continue
 
             strategy = StrategyConfig(
                 name=strategy_name,
-                bet_type=BET_TYPE_MAP[strategy_name],
+                bet_type=primary_bet,
                 params=params,
             )
-            bt = run_backtest(train_rows, strategy, train_payouts, buy_mode=buy_mode)
+            bt = run_backtest(
+                train_rows, strategy, train_payouts,
+                buy_mode=primary_mode,
+            )
             if bt.total_bets < 10:
                 continue
 
@@ -190,24 +243,47 @@ def optimize(
                 best_strategy = strategy
 
         if best_strategy is None or best_train_bt is None:
+            logger.warning(f"  {strategy_name}: 有効な試行なし（スキップ）")
             continue
 
-        test_bt = run_backtest(test_rows, best_strategy, test_payouts, buy_mode=buy_mode)
-        live    = is_live_ready(test_bt)
+        logger.info(f"  最良学習: {best_train_bt.summary()}")
+
+        # ── Step2: 全買いモード × 賭け種を評価 ──
+        buy_results: list[BuyModeResult] = []
+        eval_bet_types = EVAL_BET_TYPES.get(strategy_name, ["sanrentan", "sanrenfuku"])
+
+        for bet_type in eval_bet_types:
+            for buy_mode in BUY_MODES_FOR_BET_TYPE.get(bet_type, ["full"]):
+                # 賭け種を切り替えた戦略を生成
+                eval_strategy = StrategyConfig(
+                    name=strategy_name,
+                    bet_type=bet_type,
+                    params=best_strategy.params,
+                )
+                test_bt = run_backtest(
+                    test_rows, eval_strategy, test_payouts,
+                    buy_mode=buy_mode,
+                )
+                live = is_live_ready(test_bt)
+                br = BuyModeResult(
+                    strategy_name=strategy_name,
+                    bet_type=bet_type,
+                    buy_mode=buy_mode,
+                    test_bt=test_bt,
+                    live_ready=live,
+                )
+                buy_results.append(br)
+                logger.info(f"    {br.summary()}")
 
         optim = OptimResult(
             strategy=best_strategy,
-            backtest=best_train_bt,
-            test_backtest=test_bt,
-            live_ready=live,
+            train_bt=best_train_bt,
+            buy_results=buy_results,
         )
         results.append(optim)
 
-        label = "✅ 実運用OK" if live else "❌ 未達"
-        logger.info(
-            f"  学習: {best_train_bt.summary()}\n"
-            f"  テスト: {test_bt.summary()} {label}"
-        )
-
-    results.sort(key=lambda r: (r.test_backtest.recovery_rate if r.test_backtest else 0), reverse=True)
+    results.sort(
+        key=lambda r: r.best_result().test_bt.recovery_rate if r.best_result() else 0,
+        reverse=True,
+    )
     return results

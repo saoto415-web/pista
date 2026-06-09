@@ -40,18 +40,13 @@ logging.basicConfig(
 LIVE_STRATEGIES_PATH = Path(__file__).parent / "reports" / "live_strategies.json"
 
 
-def save_live_strategies(live_strategies, optim_results=None):
-    hit_rate_map = {}
-    if optim_results:
-        for r in optim_results:
-            if r.live_ready and r.test_backtest:
-                hit_rate_map[r.strategy.name] = r.test_backtest.hit_rate
+def save_live_strategies(live_strategies):
     data = [
         {
             "name":       s.name,
             "bet_type":   s.bet_type,
             "params":     s.params,
-            "hit_rate":   hit_rate_map.get(s.name, None),
+            "hit_rate":   getattr(s, "hit_rate", None),
             "avg_payout": getattr(s, "avg_payout", None),
         }
         for s in live_strategies
@@ -100,7 +95,6 @@ def cmd_optimize(n_trials: int):
     from data_fetcher import load_from_db, load_payouts_from_db
     from feature_engine import build_features
     from ai_optimizer import optimize
-    from report_generator import generate_backtest_report
 
     logger.info("=== バックテスト・最適化開始 ===")
 
@@ -118,10 +112,15 @@ def cmd_optimize(n_trials: int):
 
     results = optimize(enriched, n_trials=n_trials, payouts_by_race=payouts_by_race)
 
-    report = generate_backtest_report(results)
-    print("\n" + report)
+    # サマリーをコンソール出力
+    print("\n=== 最適化結果 ===")
+    for r in results:
+        best = r.best_result()
+        if best:
+            print(f"  {best.summary()}")
+    print()
 
-    # DBにレポートと構造化結果を保存（Streamlitから参照できるように）
+    # DBにマトリクス結果を保存（Streamlitから参照できるように）
     try:
         import db as _db
         import json as _json
@@ -130,39 +129,59 @@ def cmd_optimize(n_trials: int):
         c    = _db.get_cursor(conn)
         now  = _dt.now().isoformat()
 
-        # 構造化結果JSON（正規表現パース不要）
-        results_json = _json.dumps([
-            {
-                "strategy":   r.strategy.name,
-                "bet_type":   r.strategy.bet_type,
-                "total_bets": r.test_backtest.total_bets if r.test_backtest else 0,
-                "hits":       r.test_backtest.hits if r.test_backtest else 0,
-                "hit_rate":   round(r.test_backtest.hit_rate * 100, 1) if r.test_backtest else 0,
-                "avg_cost":   round(r.test_backtest.avg_cost, 0) if r.test_backtest else 0,
-                "recovery":   round(r.test_backtest.recovery_rate * 100, 1) if r.test_backtest else 0,
-                "roi":        round(r.test_backtest.roi * 100, 1) if r.test_backtest else 0,
-                "live_ready": r.live_ready,
-            }
-            for r in results if r.test_backtest
-        ], ensure_ascii=False)
+        # 全組み合わせ結果をマトリクスJSONで保存
+        matrix_rows = []
+        for r in results:
+            for br in r.buy_results:
+                matrix_rows.append({
+                    "strategy":   br.strategy_name,
+                    "bet_type":   br.bet_type,
+                    "buy_mode":   br.buy_mode,
+                    "total_bets": br.test_bt.total_bets,
+                    "hits":       br.test_bt.hits,
+                    "hit_rate":   round(br.test_bt.hit_rate * 100, 1),
+                    "avg_cost":   round(br.test_bt.avg_cost, 0),
+                    "recovery":   round(br.test_bt.recovery_rate * 100, 1),
+                    "roi":        round(br.test_bt.roi * 100, 1),
+                    "confidence": br.confidence,
+                    "live_ready": br.live_ready,
+                })
+
+        results_json = _json.dumps(matrix_rows, ensure_ascii=False)
+        report_text  = f"最適化完了: {len(results)}戦略 / {len(matrix_rows)}組み合わせ ({now})"
 
         c.execute(_db.sql("""
             INSERT OR IGNORE INTO optimize_cache (id, report, results_json, updated_at) VALUES (?,?,?,?)
-        """), ("latest", report, results_json, now))
+        """), ("latest", report_text, results_json, now))
         if c.rowcount == 0:
             c.execute(_db.sql(
                 "UPDATE optimize_cache SET report=?, results_json=?, updated_at=? WHERE id=?"
-            ), (report, results_json, now, "latest"))
+            ), (report_text, results_json, now, "latest"))
         conn.commit()
         conn.close()
-        logger.info("optimize_cache 保存完了")
+        logger.info(f"optimize_cache 保存完了 ({len(matrix_rows)}件)")
     except Exception as e:
         logger.warning(f"optimize_cache 保存失敗（無視）: {e}")
 
-    live_strategies = [r.strategy for r in results if r.live_ready]
-    logger.info(f"実運用基準クリア: {len(live_strategies)}戦略")
-    save_live_strategies(live_strategies, optim_results=results)
+    # 採用戦略をlive_strategies.jsonに保存（--picksで使用）
+    # 採用基準を満たした (strategy, bet_type) の組み合わせのみ
+    live_strategies = []
+    for r in results:
+        for br in r.buy_results:
+            if br.live_ready:
+                from strategy_engine import StrategyConfig as _SC
+                s = _SC(
+                    name=br.strategy_name,
+                    bet_type=br.bet_type,
+                    params=r.strategy.params,
+                    hit_rate=round(br.test_bt.hit_rate, 3),
+                    avg_payout=round(br.test_bt.total_return / br.test_bt.hits)
+                               if br.test_bt.hits > 0 else None,
+                )
+                live_strategies.append(s)
 
+    logger.info(f"実運用基準クリア: {len(live_strategies)}組み合わせ")
+    save_live_strategies(live_strategies)
     return live_strategies
 
 
