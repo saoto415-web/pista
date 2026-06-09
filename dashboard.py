@@ -265,6 +265,44 @@ def parse_picks_report(text: str) -> list[dict]:
 # ──────────────────────────────────────────────
 
 STRATEGY_INFO = {
+    "LineLeader": {
+        "label":    "ライン先頭・逃げ選手狙い",
+        "bet":      "2車複",
+        "emoji":    "🚴",
+        "summary":  "競輪の核心「ライン先頭（逃げ選手）」を軸に据え、強いラインの先頭選手を狙う最も競輪らしい戦略。",
+        "detail": [
+            "✅ **ライン先頭選手**のみ対象（逃げ主体の選手）",
+            "✅ 人気 **6番手以内**（人気薄は信頼度が低い）",
+            "✅ 勝率 **8%以上** の実力者",
+            "✅ ライン人数 **2車以上**（連携が機能しやすい）",
+            "✅ 対抗ライン筆頭のクラスが低い（競り合いで有利）",
+        ],
+        "point": "競輪の本質であるライン戦術を活かした基本戦略。的中率は低めだが理論的根拠が強い。",
+    },
+    "ClassValue": {
+        "label":    "高クラス・オッズ歪み狙い",
+        "bet":      "2車複",
+        "emoji":    "⭐",
+        "summary":  "クラスが高いにもかかわらず市場評価が低い（オッズが高い）選手の歪みを狙う価値投資型戦略。",
+        "detail": [
+            "✅ クラスランク **S2以上**（実力が客観的に高い）",
+            "✅ 人気 **3〜8番手**（クラスの割にオッズが高い）",
+            "✅ ライン内クラス優位（同ライン内で最上位クラス）",
+        ],
+        "point": "市場が選手の直近パフォーマンスに引きずられてクラスを過小評価している場面を狙う。",
+    },
+    "GradeFilter": {
+        "label":    "高グレードレース・安定型",
+        "bet":      "2車複",
+        "emoji":    "🏆",
+        "summary":  "G2以上の高グレードレースに絞り、実力者が正当評価されやすい環境で安定回収を狙う戦略。",
+        "detail": [
+            "✅ **G2以上**のグレードレース限定（G3/F系は対象外）",
+            "✅ 人気 **4番手以内**（高グレードでは人気通りになりやすい）",
+            "✅ 勝率 **12%以上**、クラス **A1以上**",
+        ],
+        "point": "高グレードレースは荒れにくく予測精度が上がる。件数は少ないが安定感を重視した戦略。",
+    },
     "FormPeak": {
         "label":    "好調選手・中穴狙い",
         "bet":      "2車複",
@@ -560,82 +598,98 @@ if page == "🏠 今日の買い目":
 
 elif page == "📋 戦略一覧":
     st.title("📋 戦略一覧")
-    st.caption("PISTAが使用しているAI戦略の説明と実績です。")
 
-    # 戦略データ読み込み
-    strategies_data = []
+    _BT_LABEL = {"nishafuku": "2車複", "wide": "ワイド", "sanrentan": "三連単",
+                 "sanrenfuku": "三連複", "tansho": "単勝", "fukusho": "複勝"}
+
+    # 採用戦略セット（live_strategies.json）
+    adopted_names = set()
+    live_data_map = {}
     if strat_path.exists():
-        strategies_data = json.loads(strat_path.read_text(encoding="utf-8"))
+        for s in json.loads(strat_path.read_text(encoding="utf-8")):
+            adopted_names.add(s["name"])
+            live_data_map[s["name"]] = s
 
-    # 実績データ（signals テーブルから集計）
+    # 実運用シグナル実績（signals テーブル）
     df_perf = query_db("""
         SELECT strategy,
                COUNT(*) AS total,
                SUM(CASE WHEN is_hit = 1 THEN 1 ELSE 0 END) AS hits,
                SUM(CASE WHEN is_hit = 1 THEN actual_payout ELSE 0 END) AS paid
-        FROM signals
-        WHERE is_hit IS NOT NULL
-        GROUP BY strategy
+        FROM signals WHERE is_hit IS NOT NULL GROUP BY strategy
     """)
     perf_map = {}
     if not df_perf.empty:
         for _, r in df_perf.iterrows():
-            total = int(r["total"])
-            hits  = int(r["hits"])
-            paid  = int(r["paid"])
-            invest = total * 100
+            total = int(r["total"]); hits = int(r["hits"]); paid = int(r["paid"])
             perf_map[r["strategy"]] = {
-                "total":    total,
-                "hits":     hits,
-                "hit_pct":  hits / total * 100 if total else 0,
-                "paid":     paid,
-                "roi":      (paid - invest) / invest * 100 if invest else 0,
-                "avg_win":  paid / hits if hits else 0,
+                "total": total, "hits": hits,
+                "hit_pct": hits / total * 100 if total else 0,
+                "roi": (paid - total * 100) / (total * 100) * 100 if total else 0,
             }
 
-    for s in strategies_data:
-        name = s["name"]
-        info = STRATEGY_INFO.get(name, {})
-        _bt_map = {"nishafuku": "2車複", "wide": "ワイド", "sanrentan": "三連単", "sanrenfuku": "三連複", "tansho": "単勝", "fukusho": "複勝"}
-        bet  = _bt_map.get(s.get("bet_type", "").lower(), s.get("bet_type", ""))
-        hr   = s.get("hit_rate")
-        ap   = s.get("avg_payout")
-        ev   = round(hr * ap) if (hr and ap) else None
-        perf = perf_map.get(name, {})
+    # 全戦略リスト（STRATEGY_INFO の定義順）
+    ALL_STRATEGIES = list(STRATEGY_INFO.keys())
 
-        emoji   = info.get("emoji", "📌")
-        label   = info.get("label", name)
-        summary = info.get("summary", "")
-        detail  = info.get("detail", [])
-        point   = info.get("point", "")
+    # フィルター
+    _filter = st.segmented_control(
+        "表示", ["全戦略", "採用中のみ", "未採用のみ"], default="全戦略", key="strat_filter"
+    )
+    if _filter == "採用中のみ":
+        show_names = [n for n in ALL_STRATEGIES if n in adopted_names]
+    elif _filter == "未採用のみ":
+        show_names = [n for n in ALL_STRATEGIES if n not in adopted_names]
+    else:
+        show_names = ALL_STRATEGIES
 
-        # カード本体
-        st.markdown(f"### {emoji} {name}　―　{label}")
-        st.markdown(f"**賭種：{bet}**　　{summary}")
+    st.caption(f"全 {len(ALL_STRATEGIES)} 戦略 / 採用中 {len(adopted_names)} 戦略")
+    st.divider()
+
+    for name in show_names:
+        info    = STRATEGY_INFO.get(name, {})
+        is_adopted = name in adopted_names
+        live    = live_data_map.get(name, {})
+        hr      = live.get("hit_rate")
+        ap      = live.get("avg_payout")
+        ev      = round(hr * ap) if (hr and ap) else None
+        perf    = perf_map.get(name, {})
+        bet_raw = live.get("bet_type", "")
+        bet     = _BT_LABEL.get(bet_raw.lower(), bet_raw) if bet_raw else info.get("bet", "-")
+
+        adopt_badge = (
+            '<span style="background:#2ecc71;color:#000;padding:2px 10px;border-radius:12px;font-size:0.8em;font-weight:bold">✅ 採用中</span>'
+            if is_adopted else
+            '<span style="background:#555;color:#ccc;padding:2px 10px;border-radius:12px;font-size:0.8em">未採用</span>'
+        )
+        st.markdown(
+            f"### {info.get('emoji','📌')} {name}　―　{info.get('label', name)}&nbsp;&nbsp;{adopt_badge}",
+            unsafe_allow_html=True,
+        )
+        st.markdown(f"**賭種：{bet}**　　{info.get('summary','')}")
 
         col_left, col_right = st.columns([3, 2])
-
         with col_left:
             st.markdown("**📌 選出条件**")
-            for d in detail:
+            for d in info.get("detail", []):
                 st.markdown(f"- {d}")
-            if point:
-                st.info(f"💡 {point}")
-
+            if info.get("point"):
+                st.info(f"💡 {info['point']}")
         with col_right:
-            st.markdown("**📊 バックテスト実績**")
-            m1, m2, m3 = st.columns(3)
-            m1.metric("的中率",   f"{hr*100:.1f}%" if hr else "-")
-            m2.metric("平均払戻", f"{ap:.0f}円"    if ap else "-")
-            m3.metric("期待収益\n（100円あたり）", f"{ev:.0f}円" if ev else "-")
-
-            if perf:
-                st.markdown("**📅 記録済みシグナル実績**")
-                p1, p2, p3 = st.columns(3)
-                p1.metric("予想数 / 的中", f"{perf['total']} / {perf['hits']} 件")
-                p2.metric("的中率",        f"{perf['hit_pct']:.1f}%")
-                p3.metric("収益率",        f"{perf['roi']:+.1f}%",
-                          delta_color="normal" if perf["roi"] >= 0 else "inverse")
+            if is_adopted:
+                st.markdown("**📊 バックテスト実績**")
+                m1, m2, m3 = st.columns(3)
+                m1.metric("的中率",   f"{hr*100:.1f}%" if hr else "-")
+                m2.metric("平均払戻", f"{ap:.0f}円"    if ap else "-")
+                m3.metric("期待収益（100円）", f"{ev:.0f}円" if ev else "-")
+                if perf:
+                    st.markdown("**📅 実運用シグナル実績**")
+                    p1, p2, p3 = st.columns(3)
+                    p1.metric("予想/的中", f"{perf['total']} / {perf['hits']} 件")
+                    p2.metric("的中率",    f"{perf['hit_pct']:.1f}%")
+                    p3.metric("収益率",    f"{perf['roi']:+.1f}%")
+            else:
+                st.markdown("**📊 バックテスト実績**")
+                st.caption("まだ採用されていない戦略です。最適化を実行すると成績が確認できます。")
 
         st.divider()
 
@@ -1091,7 +1145,40 @@ elif page == "⚙️ ツール":
                     st.error(f"エラー: {e}")
                     st.code(traceback.format_exc())
 
+        # 全戦略マスターリスト（PARAM_SPACE の定義順）
+        ALL_STRAT_NAMES = [
+            "LineLeader", "ClassValue", "GradeFilter",
+            "FormPeak", "FormPeakSanrentan", "FormPeakSanrenfuku",
+            "ValueHunt", "BankSpec",
+        ]
+        _BT_LABEL2 = {"nishafuku": "2車複", "wide": "ワイド", "sanrentan": "三連単",
+                      "sanrenfuku": "三連複", "tansho": "単勝", "fukusho": "複勝"}
+        _BET_TYPE_MAP = {
+            "LineLeader": "nishafuku", "ClassValue": "nishafuku",
+            "GradeFilter": "nishafuku", "FormPeak": "nishafuku",
+            "FormPeakSanrentan": "sanrentan", "FormPeakSanrenfuku": "sanrenfuku",
+            "ValueHunt": "wide", "BankSpec": "wide",
+        }
+
+        # 最適化結果マップ
         opt_results = parse_optimize_log()
+        opt_map = {r["戦略"]: r for r in opt_results}
+
+        # 採用戦略セット
+        _adopted = set()
+        if strat_path.exists():
+            for s in json.loads(strat_path.read_text(encoding="utf-8")):
+                _adopted.add(s["name"])
+
+        # 構築度ラベル
+        def _build_level(name):
+            if name in _adopted and opt_map.get(name, {}).get("採用", False):
+                return ("✅ 採用中",    "#2ecc71")
+            if name in opt_map:
+                return ("🔶 分析済み", "#f39c12")
+            return ("📋 設計済み",  "#3498db")
+
+        # ── グラフ（分析済み戦略のみ）
         if opt_results:
             df_opt = pd.DataFrame(opt_results)
             colors = ["#2ecc71" if r else "#e74c3c" for r in df_opt["採用"]]
@@ -1102,27 +1189,38 @@ elif page == "⚙️ ツール":
                 textposition="outside",
             ))
             fig.add_hline(y=100, line_dash="dash", line_color="white",
-                          annotation_text="損益分岐ライン（100%）")
+                          annotation_text="損益分岐（100%）")
             fig.update_layout(
-                title="バックテスト 回収率（全流しコスト込み／緑 = 採用済み）",
+                title="バックテスト 回収率（緑 = 採用済み / 赤 = 未達）",
                 yaxis_title="回収率 (%)",
                 plot_bgcolor="#0e1117", paper_bgcolor="#0e1117",
-                font_color="white", height=380,
+                font_color="white", height=360,
             )
             st.plotly_chart(fig, use_container_width=True)
 
-            df_disp = df_opt[["戦略", "賭回数", "的中率", "平均コスト", "回収率", "収益率", "採用"]].copy()
-            df_disp["的中率"]     = df_disp["的中率"].map("{:.1f}%".format)
-            df_disp["平均コスト"] = df_disp["平均コスト"].apply(
-                lambda v: f"{int(v):,}円" if v is not None else "-"
-            )
-            df_disp["回収率"]     = df_disp["回収率"].map("{:.1f}%".format)
-            df_disp["収益率"]     = df_disp["収益率"].map("{:+.1f}%".format)
-            df_disp["採用"]       = df_disp["採用"].map({True: "✅ 採用", False: "❌ 未採用"})
-            st.dataframe(df_disp, use_container_width=True, hide_index=True)
-            st.info("📌 次回 --optimize 実行後に新しい回収率が表示されます（現在表示は旧基準の数値の可能性あり）")
-        else:
-            st.info("バックテスト結果がありません。ツール画面から --optimize を実行してください。")
+        # ── 全戦略テーブル（構築度付き）
+        st.subheader("全戦略の状況")
+        rows = []
+        for name in ALL_STRAT_NAMES:
+            opt  = opt_map.get(name, {})
+            lvl, _ = _build_level(name)
+            bet_type = _BET_TYPE_MAP.get(name, "-")
+            rows.append({
+                "戦略":       name,
+                "賭種":       _BT_LABEL2.get(bet_type, bet_type),
+                "構築度":     lvl,
+                "賭回数":     opt.get("賭回数", "-"),
+                "的中率":     f"{opt['的中率']:.1f}%" if "的中率" in opt else "-",
+                "平均コスト": f"{int(opt['平均コスト']):,}円" if opt.get("平均コスト") else "-",
+                "回収率":     f"{opt['回収率']:.1f}%" if "回収率" in opt else "-",
+                "収益率":     f"{opt['収益率']:+.1f}%" if "収益率" in opt else "-",
+            })
+        df_all = pd.DataFrame(rows)
+        st.dataframe(df_all, use_container_width=True, hide_index=True)
+
+        st.caption("""
+**構築度の見方**　✅ 採用中：分析完了・実運用中　🔶 分析済み：バックテスト結果あり・閾値未達　📋 設計済み：戦略定義あり・未分析
+        """)
 
     # ── データ概要
     with t2:
