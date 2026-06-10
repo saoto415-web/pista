@@ -144,7 +144,7 @@ def _recompute_confidence(total_bets: int, recovery: float) -> str:
     elif total_bets < 1000:
         return "🟢 黒字確認" if profitable else "⚫ 赤字確認"
     else:
-        return "✅ 採用候補" if profitable else "⚫ 赤字確認"
+        return "✅ 採用" if profitable else "⚫ 赤字確認"
 
 
 def load_optimize_results() -> list[dict]:
@@ -1273,7 +1273,7 @@ elif page == "⚙️ ツール":
                 st.warning("採用候補なし（1000件以上かつ回収率100%以上の組み合わせが見つかりません）")
 
         st.caption("""
-**信頼度**　🔴 試行中 <50件　🟡 参考値 50-199件　🟢 信頼可能 200-999件　✅ 採用候補 1000+件かつ回収率100%+
+**信頼度**　🔴 試行中 <50件　🟡 参考値 50-199件　🟢 黒字確認 200+件かつ回収率100%+　⚫ 赤字確認 200+件だが赤字　✅ 採用 1000+件かつ回収率100%+
         """)
 
     # ── データ概要
