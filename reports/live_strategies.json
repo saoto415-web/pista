@@ -1,71 +1,47 @@
 [
   {
-    "name": "FormPeak",
-    "bet_type": "nishafuku",
+    "name": "ValueHunt",
+    "bet_type": "sanrentan",
+    "buy_mode": "san_1fix_line",
     "params": {
-      "max_prev_finish": 3,
-      "max_days_since_last": 7,
       "min_popularity": 3,
-      "max_popularity": 8,
-      "min_racer_win_rate": 0.12
+      "max_popularity": 12,
+      "max_line_position": 0,
+      "min_racer_win_rate": 0.08,
+      "max_prev_finish": 3,
+      "min_line_size": 2
     },
-    "hit_rate": 0.273,
-    "avg_payout": 987
-  },
-  {
-    "name": "BankSpec",
-    "bet_type": "wide",
-    "params": {
-      "max_popularity": 3,
-      "min_venue_win_rate": 0.2,
-      "min_class_score": 2,
-      "min_racer_win_rate": 0.05
-    },
-    "hit_rate": 0.615,
-    "avg_payout": 306
+    "hit_rate": 0.015,
+    "avg_payout": 11079
   },
   {
     "name": "ValueHunt",
-    "bet_type": "wide",
+    "bet_type": "sanrentan",
+    "buy_mode": "san_2fix_line",
     "params": {
-      "min_popularity": 6,
-      "max_popularity": 8,
-      "max_line_position": 1,
+      "min_popularity": 3,
+      "max_popularity": 12,
+      "max_line_position": 0,
       "min_racer_win_rate": 0.08,
-      "max_prev_finish": 6,
+      "max_prev_finish": 3,
       "min_line_size": 2
     },
-    "hit_rate": 0.308,
-    "avg_payout": 662
+    "hit_rate": 0.04,
+    "avg_payout": 7607
   },
   {
-    "name": "FormPeakSanrentan",
-    "bet_type": "sanrentan",
-    "params": {
-      "max_prev_finish": 1,
-      "max_days_since_last": 28,
-      "min_popularity": 3,
-      "max_popularity": 10,
-      "min_racer_win_rate": 0.08,
-      "min_line_size": 3,
-      "require_line_leader": 1
-    },
-    "hit_rate": 0.108,
-    "avg_payout": 12491
-  },
-  {
-    "name": "FormPeakSanrenfuku",
+    "name": "ValueHunt",
     "bet_type": "sanrenfuku",
+    "buy_mode": "sf_2jiku_line",
     "params": {
-      "max_prev_finish": 3,
-      "max_days_since_last": 28,
       "min_popularity": 3,
-      "max_popularity": 10,
+      "max_popularity": 12,
+      "max_line_position": 0,
       "min_racer_win_rate": 0.08,
-      "min_line_size": 2,
-      "require_line_leader": 0
+      "max_prev_finish": 3,
+      "min_line_size": 2
     },
-    "hit_rate": 0.299,
-    "avg_payout": 1703
+    "hit_rate": 0.178,
+    "avg_payout": 1778
   }
 ]
