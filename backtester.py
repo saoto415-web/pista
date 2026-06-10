@@ -53,7 +53,7 @@ def confidence_level(n_bets: int, recovery_rate: float = 0.0) -> str:
         # 200〜999件: 収益性で分岐
         return "🟢 黒字確認" if recovery_rate >= 1.0 else "⚫ 赤字確認"
     else:
-        # 1000件以上: 採用候補 or 赤字確認
+        # 1000件以上: 採用 or 赤字確認
         return "✅ 採用" if recovery_rate >= 1.0 else "⚫ 赤字確認"
 
 

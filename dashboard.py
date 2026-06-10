@@ -1136,7 +1136,7 @@ elif page == "⚙️ ツール":
     # ── 戦略バックテスト
     with t1:
         st.subheader("戦略バックテスト成績")
-        st.caption("回収率100%超 = 利益あり。✅採用候補 = 1000件以上かつ回収率100%以上。")
+        st.caption("回収率100%超 = 利益あり。✅採用 = 1000件以上かつ回収率100%以上。")
 
         col_btn, col_info = st.columns([1, 3])
         with col_btn:
@@ -1255,10 +1255,10 @@ elif page == "⚙️ ツール":
 
                 st.divider()
 
-            # ── 採用候補サマリーバー
+            # ── 採用サマリーバー
             live_rows = [r for r in matrix_data if r["live_ready"]]
             if live_rows:
-                st.subheader(f"✅ 採用候補　{len(live_rows)} 件")
+                st.subheader(f"✅ 採用　{len(live_rows)} 件")
                 df_live = pd.DataFrame([{
                     "戦略":   r["strategy"],
                     "賭種":   _BT_LABEL2.get(r["bet_type"], r["bet_type"]),
@@ -1270,7 +1270,7 @@ elif page == "⚙️ ツール":
                 } for r in sorted(live_rows, key=lambda x: x["recovery"], reverse=True)])
                 st.dataframe(df_live, use_container_width=True, hide_index=True)
             else:
-                st.warning("採用候補なし（1000件以上かつ回収率100%以上の組み合わせが見つかりません）")
+                st.warning("採用なし（1000件以上かつ回収率100%以上の組み合わせが見つかりません）")
 
         st.caption("""
 **信頼度**　🔴 試行中 <50件　🟡 参考値 50-199件　🟢 黒字確認 200+件かつ回収率100%+　⚫ 赤字確認 200+件だが赤字　✅ 採用 1000+件かつ回収率100%+
